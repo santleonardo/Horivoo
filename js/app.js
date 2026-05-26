@@ -64,6 +64,13 @@ function showScreen(screenId) {
   ['config-screen', 'login-screen', 'app-main'].forEach(id => {
     document.getElementById(id).style.display = id === screenId ? '' : 'none';
   });
+
+  // Controla visibilidade dos botões de navegação no header
+  const navEl = document.querySelector('.header-nav');
+  if (navEl) {
+    // Esconde nav quando está na tela de config ou login
+    navEl.style.display = screenId === 'app-main' ? '' : 'none';
+  }
 }
 
 function showConfigScreen() { showScreen('config-screen'); }
@@ -215,12 +222,6 @@ function setupAuthUI() {
     localStorage.setItem('horivoo_guest', 'true');
     showApp();
     updateHeader();
-
-    // Bind de navegação
-    document.querySelectorAll('.header-nav button[data-tab]').forEach(btn => {
-      btn.addEventListener('click', () => switchTab(btn.dataset.tab));
-    });
-
     switchTab('student');
   });
 
@@ -340,6 +341,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Setup dos formulários de autenticação
   setupAuthUI();
 
+  // Bind de navegação do header — global, funciona quando app-main estiver visível
+  document.querySelectorAll('.header-nav button[data-tab]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      // Só troca de aba se o app-main estiver visível
+      if (document.getElementById('app-main').style.display !== 'none') {
+        switchTab(btn.dataset.tab);
+      }
+    });
+  });
+
   // Passo 2: Verificar se está logado ou é visitante
   const session = getSession();
   const isGuest = localStorage.getItem('horivoo_guest') === 'true';
@@ -368,11 +379,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     showApp();
     updateHeader();
 
-    // Bind de navegação
-    document.querySelectorAll('.header-nav button[data-tab]').forEach(btn => {
-      btn.addEventListener('click', () => switchTab(btn.dataset.tab));
-    });
-
     // Professor logado: iniciar na aba Professor
     switchTab('teacher');
 
@@ -380,10 +386,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Visitante (aluno) — ir direto para a aba aluno
     showApp();
     updateHeader();
-
-    document.querySelectorAll('.header-nav button[data-tab]').forEach(btn => {
-      btn.addEventListener('click', () => switchTab(btn.dataset.tab));
-    });
 
     switchTab('student');
 
