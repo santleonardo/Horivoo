@@ -1,25 +1,35 @@
 /**
  * api.js — Serviço de comunicação com o Supabase
- * Todas as chamadas ao banco ficam centralizadas aqui.
+ * Suporta chamadas autenticadas (professor) e anônimas (aluno)
  */
 
 import { SUPABASE_URL as CFG_URL, SUPABASE_KEY as CFG_KEY } from './config.js';
+import { getAccessToken } from './auth.js';
 
-// Permite sobrescrever via sessionStorage (tela de configuração)
 const SUPABASE_URL = window.__SB_URL || CFG_URL;
 const SUPABASE_KEY = window.__SB_KEY || CFG_KEY;
 
-// Cliente Supabase simples (sem SDK extra, usando REST direto)
-const headers = {
-  'Content-Type': 'application/json',
-  'apikey': SUPABASE_KEY,
-  'Authorization': `Bearer ${SUPABASE_KEY}`,
-  'Prefer': 'return=representation'
-};
-
 // Helper de fetch com tratamento de erros
+// Usa token de autenticação quando disponível (professor logado)
 async function req(path, options = {}) {
   const url = `${SUPABASE_URL}/rest/v1/${path}`;
+
+  const token = getAccessToken();
+
+  const headers = {
+    'Content-Type': 'application/json',
+    'apikey': SUPABASE_KEY,
+    'Prefer': 'return=representation'
+  };
+
+  if (token) {
+    // Professor logado: usa access_token pessoal
+    headers['Authorization'] = `Bearer ${token}`;
+  } else {
+    // Aluno / anônimo: usa anon key
+    headers['Authorization'] = `Bearer ${SUPABASE_KEY}`;
+  }
+
   const res = await fetch(url, { headers, ...options });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -38,12 +48,10 @@ export async function getTeachers() {
   return req('teachers?select=id,name,email&order=name');
 }
 
-/** Insere um novo professor */
-export async function addTeacher({ name, email }) {
-  return req('teachers', {
-    method: 'POST',
-    body: JSON.stringify({ name, email })
-  });
+/** Busca professor pelo user_id (auth.uid) do Supabase Auth */
+export async function getTeacherByUserId(userId) {
+  const result = await req(`teachers?user_id=eq.${userId}&select=id,name,email,user_id`);
+  return result.length > 0 ? result[0] : null;
 }
 
 // ================================================================
@@ -117,12 +125,11 @@ export async function cancelBooking(bookingId) {
 /**
  * Assina mudanças em tempo real numa tabela.
  * Retorna uma função para cancelar a assinatura.
- * 
+ *
  * @param {string} table - 'blocked_slots' | 'bookings'
  * @param {function} callback - chamado a cada mudança
  */
 export function subscribeTable(table, callback) {
-  // Supabase Realtime via WebSocket
   const wsUrl = SUPABASE_URL
     .replace('https://', 'wss://')
     .replace('http://', 'ws://');
@@ -130,7 +137,6 @@ export function subscribeTable(table, callback) {
   const ws = new WebSocket(`${wsUrl}/realtime/v1/websocket?apikey=${SUPABASE_KEY}&vsn=1.0.0`);
 
   ws.onopen = () => {
-    // Conectar ao canal público
     ws.send(JSON.stringify({
       topic: `realtime:public:${table}`,
       event: 'phx_join',
@@ -150,6 +156,5 @@ export function subscribeTable(table, callback) {
     console.warn(`[Realtime] Erro na conexão com ${table}. Usando polling.`);
   };
 
-  // Retorna função de cleanup
   return () => ws.close();
 }

@@ -1,12 +1,15 @@
 /**
  * teacher.js — Lógica do painel do professor
+ * Quando logado, carrega automaticamente os dados do professor autenticado
  */
 
-import { getTeachers, getBlockedSlots, getBookings, blockSlot, unblockSlot, cancelBooking, subscribeTable } from './api.js';
+import { getTeachers, getTeacherByUserId, getBlockedSlots, getBookings, blockSlot, unblockSlot, cancelBooking, subscribeTable } from './api.js';
 import { renderWeekGrid, toast, calcStats } from './ui.js';
 import { TOTAL_SLOTS } from './config.js';
+import { getUserId } from './auth.js';
 
 let currentTeacherId = null;
+let currentTeacherName = '';
 let blockedSlots = [];
 let bookings     = [];
 let unsubscribeBlocked = null;
@@ -18,26 +21,45 @@ let unsubscribeBooked  = null;
 
 export async function initTeacherPanel() {
   try {
+    // Se há professor logado, usar dados dele diretamente
+    const loggedTeacherId = window.__TEACHER_ID;
+    const loggedTeacherName = window.__TEACHER_NAME;
+
+    if (loggedTeacherId) {
+      currentTeacherId = loggedTeacherId;
+      currentTeacherName = loggedTeacherName;
+
+      // Ocultar seletor de professor (já está logado)
+      const selectorEl = document.querySelector('.teacher-selector');
+      if (selectorEl) {
+        selectorEl.innerHTML = `
+          <label>Professor:</label>
+          <span style="font-weight:600; font-size:0.95rem">${currentTeacherName}</span>
+        `;
+      }
+
+      await loadTeacherData(loggedTeacherId);
+      return;
+    }
+
+    // Fallback: sem autenticação — mostrar seletor de professores
     const teachers = await getTeachers();
 
     if (teachers.length === 0) {
       document.getElementById('teacher-panel').innerHTML = `
         <div class="empty-state">
           <div class="empty-icon">👨‍🏫</div>
-          <p>Nenhum professor cadastrado.<br>Adicione um pelo SQL do Supabase.</p>
+          <p>Nenhum professor cadastrado.<br>Crie uma conta para começar.</p>
         </div>`;
       return;
     }
 
-    // Preenche o select de professores
     const select = document.getElementById('teacher-select');
     select.innerHTML = teachers.map(t =>
       `<option value="${t.id}">${t.name}</option>`
     ).join('');
 
     select.addEventListener('change', () => loadTeacherData(select.value));
-
-    // Carrega o primeiro professor por padrão
     await loadTeacherData(teachers[0].id);
 
   } catch (err) {
@@ -112,16 +134,14 @@ function renderTeacherGrid() {
 // ================================================================
 
 async function handleSlotClick({ day, hour, status, id }) {
-  if (status === 'booked') return; // agendado: não faz nada (disabled no HTML)
+  if (status === 'booked') return;
 
   try {
     if (status === 'blocked') {
-      // Desbloqueia
       await unblockSlot(id);
       blockedSlots = blockedSlots.filter(s => s.id !== id);
       toast(`Horário ${hour} (${day}) desbloqueado.`, 'success');
     } else {
-      // Bloqueia
       const result = await blockSlot(currentTeacherId, day, hour);
       blockedSlots.push(result[0]);
       toast(`Horário ${hour} (${day}) bloqueado.`, 'info');
@@ -132,7 +152,11 @@ async function handleSlotClick({ day, hour, status, id }) {
 
   } catch (err) {
     console.error(err);
-    toast('Erro ao atualizar horário. Tente novamente.', 'error');
+    if (err.message.includes('policy') || err.message.includes('permission')) {
+      toast('Sem permissão. Apenas o professor pode alterar horários.', 'error');
+    } else {
+      toast('Erro ao atualizar horário. Tente novamente.', 'error');
+    }
   }
 }
 
@@ -179,8 +203,8 @@ function renderBookingsList() {
       <div>
         <div style="font-weight:600; font-size:0.9rem">${b.student_name}</div>
         <div style="color:var(--text-muted); font-size:0.8rem">
-          ${b.day.charAt(0).toUpperCase() + b.day.slice(1)} • ${b.hour}
-          ${b.student_email ? `• ${b.student_email}` : ''}
+          ${b.day.charAt(0).toUpperCase() + b.day.slice(1)} às ${b.hour}
+          ${b.student_email ? ` &bull; ${b.student_email}` : ''}
         </div>
       </div>
       <button
