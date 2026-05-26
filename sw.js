@@ -1,13 +1,13 @@
 /**
- * sw.js — Service Worker da AgendaPro
+ * sw.js — Service Worker da Horivoo
  *
  * Estratégias:
  * - Shell do app (HTML/CSS/JS) → Cache First (funciona offline)
  * - Chamadas ao Supabase API  → Network First com fallback para cache
  */
 
-const CACHE_NAME    = 'agendapro-v1';
-const RUNTIME_CACHE = 'agendapro-runtime-v1';
+const CACHE_NAME    = 'horivoo-v3';
+const RUNTIME_CACHE = 'horivoo-runtime-v3';
 
 // Arquivos do app shell — cacheados no install
 const APP_SHELL = [
@@ -16,14 +16,15 @@ const APP_SHELL = [
   '/css/style.css',
   '/js/config.js',
   '/js/api.js',
+  '/js/auth.js',
   '/js/ui.js',
   '/js/teacher.js',
   '/js/student.js',
+  '/js/pwa.js',
   '/js/app.js',
   '/manifest.json',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
-  // Fontes Google (cacheadas em runtime na primeira visita)
 ];
 
 // ================================================================
@@ -33,7 +34,7 @@ self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then(cache => cache.addAll(APP_SHELL))
-      .then(() => self.skipWaiting()) // ativa imediatamente
+      .then(() => self.skipWaiting())
   );
 });
 
@@ -50,7 +51,7 @@ self.addEventListener('activate', event => {
           .filter(key => !keepCaches.includes(key))
           .map(key => caches.delete(key))
       ))
-      .then(() => self.clients.claim()) // assume controle imediato
+      .then(() => self.clients.claim())
   );
 });
 
@@ -60,24 +61,23 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
 
-  // Ignora requisições não-GET e chrome-extension
   if (event.request.method !== 'GET') return;
   if (!url.protocol.startsWith('http')) return;
 
-  // Supabase API → Network First (dados sempre frescos quando online)
+  // Supabase API → Network First
   if (url.hostname.includes('supabase.co')) {
     event.respondWith(networkFirst(event.request));
     return;
   }
 
-  // Google Fonts → Cache First (performance)
+  // Google Fonts → Cache First
   if (url.hostname.includes('fonts.googleapis.com') ||
       url.hostname.includes('fonts.gstatic.com')) {
     event.respondWith(cacheFirst(event.request, RUNTIME_CACHE));
     return;
   }
 
-  // App shell e assets → Cache First
+  // App shell → Cache First
   event.respondWith(cacheFirst(event.request, CACHE_NAME));
 });
 
@@ -85,10 +85,6 @@ self.addEventListener('fetch', event => {
 // ESTRATÉGIAS DE CACHE
 // ================================================================
 
-/**
- * Cache First: serve do cache, busca na rede se não encontrar.
- * Ideal para assets estáticos.
- */
 async function cacheFirst(request, cacheName) {
   const cached = await caches.match(request);
   if (cached) return cached;
@@ -101,15 +97,10 @@ async function cacheFirst(request, cacheName) {
     }
     return response;
   } catch {
-    // Offline e não está em cache
     return offlineFallback(request);
   }
 }
 
-/**
- * Network First: tenta a rede, cai no cache se offline.
- * Ideal para dados do Supabase.
- */
 async function networkFirst(request) {
   const cache = await caches.open(RUNTIME_CACHE);
 
@@ -126,22 +117,17 @@ async function networkFirst(request) {
   }
 }
 
-/**
- * Fallback para quando está offline e não há cache.
- */
 async function offlineFallback(request) {
   const url = new URL(request.url);
 
-  // Para navegação, retorna o index.html cacheado
   if (request.mode === 'navigate') {
     const cached = await caches.match('/index.html');
     if (cached) return cached;
   }
 
-  // Para API, retorna JSON de erro amigável
   if (url.hostname.includes('supabase.co')) {
     return new Response(
-      JSON.stringify({ error: 'offline', message: 'Sem conexão. Dados podem estar desatualizados.' }),
+      JSON.stringify({ error: 'offline', message: 'Sem conexão.' }),
       { status: 503, headers: { 'Content-Type': 'application/json' } }
     );
   }
@@ -150,7 +136,7 @@ async function offlineFallback(request) {
 }
 
 // ================================================================
-// BACKGROUND SYNC — sincroniza agendamentos feitos offline
+// BACKGROUND SYNC
 // ================================================================
 self.addEventListener('sync', event => {
   if (event.tag === 'sync-bookings') {
@@ -159,24 +145,22 @@ self.addEventListener('sync', event => {
 });
 
 async function syncPendingBookings() {
-  // Abre o IDB para buscar agendamentos pendentes
-  // (implementação simplificada — expande conforme necessário)
   console.log('[SW] Sincronizando agendamentos pendentes...');
 }
 
 // ================================================================
-// PUSH NOTIFICATIONS — estrutura pronta para futuro
+// PUSH NOTIFICATIONS
 // ================================================================
 self.addEventListener('push', event => {
   if (!event.data) return;
 
   const data = event.data.json();
   event.waitUntil(
-    self.registration.showNotification(data.title || 'AgendaPro', {
+    self.registration.showNotification(data.title || 'Horivoo', {
       body: data.body || 'Você tem uma nova notificação.',
       icon: '/icons/icon-192.png',
       badge: '/icons/icon-72.png',
-      tag: data.tag || 'agendapro',
+      tag: data.tag || 'horivoo',
       data: { url: data.url || '/' }
     })
   );

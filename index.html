@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <title>AgendaPro — Professores</title>
+  <title>Horivoo — Agenda de Professores</title>
 
   <!-- ======== PWA ======== -->
   <link rel="manifest" href="/manifest.json" />
@@ -11,7 +11,7 @@
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-  <meta name="apple-mobile-web-app-title" content="AgendaPro" />
+  <meta name="apple-mobile-web-app-title" content="Horivoo" />
 
   <!-- Apple touch icons -->
   <link rel="apple-touch-icon" href="/icons/icon-192.png" />
@@ -20,10 +20,9 @@
 
   <!-- Favicon -->
   <link rel="icon" type="image/png" sizes="96x96" href="/icons/icon-96.png" />
-  <link rel="icon" type="image/png" sizes="32x32" href="/icons/icon-96.png" />
 
-  <!-- Open Graph / compartilhamento -->
-  <meta property="og:title" content="AgendaPro — Agenda de Professores" />
+  <!-- Open Graph -->
+  <meta property="og:title" content="Horivoo — Agenda de Professores" />
   <meta property="og:description" content="Gerencie horários semanais. Professores bloqueiam, alunos agendam." />
   <meta property="og:image" content="/icons/icon-512.png" />
   <meta property="og:type" content="website" />
@@ -32,7 +31,6 @@
   <link rel="stylesheet" href="/css/style.css" />
 
   <style>
-    /* Safe area para iPhone com notch / Dynamic Island */
     .app-header {
       padding-left: max(24px, env(safe-area-inset-left));
       padding-right: max(24px, env(safe-area-inset-right));
@@ -41,7 +39,6 @@
     .main-content {
       padding-bottom: max(64px, calc(48px + env(safe-area-inset-bottom)));
     }
-    /* Quando rodando como PWA instalado */
     body.standalone-mode .app-header {
       padding-top: max(12px, env(safe-area-inset-top));
     }
@@ -53,11 +50,21 @@
      CABEÇALHO
      ============================================================ -->
 <header class="app-header">
-  <div class="logo">Agenda<span>Pro</span></div>
+  <div class="logo">Hori<span>voo</span></div>
   <nav class="header-nav">
-    <button data-tab="teacher" class="active">👨‍🏫 Professor</button>
-    <button data-tab="student">🎓 Aluno</button>
+    <button data-tab="teacher" class="active">Professor</button>
+    <button data-tab="student">Aluno</button>
   </nav>
+  <div class="header-user">
+    <span id="header-guest" style="display:none; font-size:0.8rem; color:var(--text-muted)">Visitante</span>
+    <button id="login-from-header-btn" class="btn btn-outline" style="display:none; padding:6px 14px; font-size:0.8rem; margin-left:8px">
+      Entrar
+    </button>
+    <span id="header-professor" style="display:none; font-size:0.85rem; font-weight:600; color:var(--accent)"></span>
+    <button id="logout-btn" class="btn btn-outline" style="display:none; padding:6px 14px; font-size:0.8rem; margin-left:8px">
+      Sair
+    </button>
+  </div>
 </header>
 
 <!-- ============================================================
@@ -68,7 +75,7 @@
     <h2>Configuração inicial</h2>
     <p>
       Conecte ao seu projeto Supabase.
-      Vá em <strong>Settings → API</strong> e cole os dados abaixo.
+      Vá em <strong>Settings &rarr; API</strong> e cole os dados abaixo.
       As credenciais ficam salvas no dispositivo.
     </p>
 
@@ -83,13 +90,106 @@
     </div>
 
     <button id="save-config-btn" class="btn btn-primary btn-full" style="margin-top:8px">
-      Conectar e continuar →
+      Conectar e continuar &rarr;
     </button>
 
     <p style="margin-top:20px; font-size:0.78rem; color:var(--text-muted)">
       Não tem conta? Crie gratuitamente em
       <a href="https://supabase.com" target="_blank" style="color:var(--accent)">supabase.com</a>.
       Depois execute o SQL em <code>sql/schema.sql</code> no SQL Editor.
+    </p>
+  </div>
+</div>
+
+<!-- ============================================================
+     TELA DE LOGIN / SIGNUP
+     ============================================================ -->
+<div id="login-screen" style="display:none">
+  <div class="auth-screen fade-up">
+    <div class="auth-logo">
+      Hori<span>voo</span>
+    </div>
+    <p class="auth-subtitle">Agenda semanal para professores e alunos</p>
+
+    <!-- Tabs: Entrar / Criar conta -->
+    <div class="auth-tabs">
+      <button class="auth-tab active" data-auth="login">Entrar</button>
+      <button class="auth-tab" data-auth="signup">Criar conta</button>
+    </div>
+
+    <!-- Formulário de Login -->
+    <form id="login-form" onsubmit="return false">
+      <div class="form-group">
+        <label>E-mail</label>
+        <input type="email" id="login-email" placeholder="seu@email.com" autocomplete="email" />
+      </div>
+      <div class="form-group">
+        <label>Senha</label>
+        <input type="password" id="login-password" placeholder="Sua senha" autocomplete="current-password" />
+      </div>
+      <button id="login-btn" type="button" class="btn btn-success btn-full">
+        Entrar
+      </button>
+      <div style="text-align:center; margin-top:10px">
+        <button id="forgot-btn" type="button" style="background:none; border:none; color:var(--accent); cursor:pointer; font-size:0.8rem; font-family:var(--font-body); text-decoration:underline">
+          Esqueceu a senha?
+        </button>
+      </div>
+    </form>
+
+    <!-- Formulário de Recuperar Senha -->
+    <form id="forgot-form" style="display:none" onsubmit="return false">
+      <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:16px">
+        Informe seu e-mail para receber um link de recuperação.
+      </p>
+      <div class="form-group">
+        <label>E-mail</label>
+        <input type="email" id="forgot-email" placeholder="seu@email.com" autocomplete="email" />
+      </div>
+      <button id="forgot-submit-btn" type="button" class="btn btn-success btn-full">
+        Enviar link de recuperação
+      </button>
+      <div style="text-align:center; margin-top:10px">
+        <button id="back-to-login-btn" type="button" style="background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:0.8rem; font-family:var(--font-body)">
+          &larr; Voltar ao login
+        </button>
+      </div>
+    </form>
+
+    <!-- Formulário de Signup -->
+    <form id="signup-form" style="display:none" onsubmit="return false">
+      <div class="form-group">
+        <label>Seu nome</label>
+        <input type="text" id="signup-name" placeholder="Ex: Prof. Maria Souza" autocomplete="name" />
+      </div>
+      <div class="form-group">
+        <label>E-mail</label>
+        <input type="email" id="signup-email" placeholder="seu@email.com" autocomplete="email" />
+      </div>
+      <div class="form-group">
+        <label>Senha</label>
+        <input type="password" id="signup-password" placeholder="Mínimo 6 caracteres" autocomplete="new-password" />
+      </div>
+      <div class="form-group">
+        <label>Confirmar senha</label>
+        <input type="password" id="signup-confirm" placeholder="Repita a senha" autocomplete="new-password" />
+      </div>
+      <button id="signup-btn" type="button" class="btn btn-success btn-full">
+        Criar conta
+      </button>
+    </form>
+
+    <!-- Continuar como aluno -->
+    <div class="auth-divider">
+      <span>ou</span>
+    </div>
+    <button id="guest-btn" type="button" class="btn btn-outline btn-full">
+      Continuar como aluno &rarr;
+    </button>
+
+    <p class="auth-hint">
+      Professores: crie uma conta para gerenciar seus horários.<br>
+      Alunos: entre como visitante para ver horários e agendar.
     </p>
   </div>
 </div>
@@ -108,7 +208,7 @@
       <div class="section-header fade-up">
         <div>
           <h2>Painel do Professor</h2>
-          <p>Clique nos horários para bloquear ou liberar. <span style="color:var(--danger)">Vermelho</span> = bloqueado · <span style="color:var(--accent)">Verde</span> = livre.</p>
+          <p>Clique nos horários para bloquear ou liberar. <span style="color:var(--danger)">Vermelho</span> = bloqueado &middot; <span style="color:var(--accent)">Verde</span> = livre.</p>
         </div>
       </div>
 
@@ -120,19 +220,19 @@
       <div class="summary-bar fade-up">
         <div class="summary-card green">
           <div>
-            <div class="summary-value" id="stat-free">—</div>
+            <div class="summary-value" id="stat-free">&mdash;</div>
             <div class="summary-label">Horários<br>disponíveis</div>
           </div>
         </div>
         <div class="summary-card red">
           <div>
-            <div class="summary-value" id="stat-blocked">—</div>
+            <div class="summary-value" id="stat-blocked">&mdash;</div>
             <div class="summary-label">Bloqueados<br>por mim</div>
           </div>
         </div>
         <div class="summary-card blue">
           <div>
-            <div class="summary-value" id="stat-booked">—</div>
+            <div class="summary-value" id="stat-booked">&mdash;</div>
             <div class="summary-label">Agendados<br>por alunos</div>
           </div>
         </div>
@@ -141,11 +241,11 @@
       <div class="legend fade-up">
         <div class="legend-item">
           <span class="legend-dot available"></span>
-          Disponível — clique para bloquear
+          Disponível &mdash; clique para bloquear
         </div>
         <div class="legend-item">
           <span class="legend-dot blocked"></span>
-          Bloqueado — clique para liberar
+          Bloqueado &mdash; clique para liberar
         </div>
         <div class="legend-item">
           <span class="legend-dot booked"></span>
@@ -182,7 +282,7 @@
         </div>
         <div style="display:flex; align-items:center; gap:8px">
           <span style="font-size:0.8rem; color:var(--text-muted)">Disponíveis:</span>
-          <span id="available-count" class="badge badge-success">—</span>
+          <span id="available-count" class="badge badge-success">&mdash;</span>
         </div>
       </div>
 
@@ -194,7 +294,7 @@
       <div class="legend fade-up">
         <div class="legend-item">
           <span class="legend-dot available"></span>
-          Disponível — clique para agendar
+          Disponível &mdash; clique para agendar
         </div>
         <p style="font-size:0.78rem; color:var(--text-muted); margin-left:auto">
           Horários ocupados não aparecem.
@@ -219,7 +319,7 @@
     <p class="modal-subtitle">Preencha seus dados para reservar o horário.</p>
 
     <div class="modal-slot-info" id="modal-slot-info">
-      — horário selecionado —
+      &mdash; horário selecionado &mdash;
     </div>
 
     <div class="form-group">
@@ -236,7 +336,7 @@
 
     <div class="modal-actions">
       <button id="modal-confirm-btn" class="btn btn-success" style="flex:1">
-        ✓ Confirmar
+        Confirmar
       </button>
       <button id="modal-cancel-btn" class="btn btn-outline">
         Cancelar
@@ -249,7 +349,6 @@
      SCRIPTS — ES Modules
      ============================================================ -->
 <script>
-  // Injeta credenciais salvas antes dos módulos carregarem
   const sbUrl = localStorage.getItem('sb_url');
   const sbKey = localStorage.getItem('sb_key');
   if (sbUrl && sbKey) {

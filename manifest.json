@@ -1,6 +1,6 @@
 {
-  "name": "AgendaPro — Professores",
-  "short_name": "AgendaPro",
+  "name": "Horivoo — Agenda de Professores",
+  "short_name": "Horivoo",
   "description": "Agenda semanal para professores e alunos",
   "start_url": "/",
   "display": "standalone",
