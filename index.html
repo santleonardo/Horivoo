@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>AgendaPro — Professores</title>
+
+  <!-- ======== PWA ======== -->
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#2D6A4F" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="AgendaPro" />
+
+  <!-- Apple touch icons -->
+  <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+  <link rel="apple-touch-icon" sizes="152x152" href="/icons/icon-152.png" />
+  <link rel="apple-touch-icon" sizes="144x144" href="/icons/icon-144.png" />
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" sizes="96x96" href="/icons/icon-96.png" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/icons/icon-96.png" />
+
+  <!-- Open Graph / compartilhamento -->
+  <meta property="og:title" content="AgendaPro — Agenda de Professores" />
+  <meta property="og:description" content="Gerencie horários semanais. Professores bloqueiam, alunos agendam." />
+  <meta property="og:image" content="/icons/icon-512.png" />
+  <meta property="og:type" content="website" />
+
+  <!-- ======== ESTILOS ======== -->
+  <link rel="stylesheet" href="/css/style.css" />
+
+  <style>
+    /* Safe area para iPhone com notch / Dynamic Island */
+    .app-header {
+      padding-left: max(24px, env(safe-area-inset-left));
+      padding-right: max(24px, env(safe-area-inset-right));
+      padding-top: env(safe-area-inset-top);
+    }
+    .main-content {
+      padding-bottom: max(64px, calc(48px + env(safe-area-inset-bottom)));
+    }
+    /* Quando rodando como PWA instalado */
+    body.standalone-mode .app-header {
+      padding-top: max(12px, env(safe-area-inset-top));
+    }
+  </style>
+</head>
+<body>
+
+<!-- ============================================================
+     CABEÇALHO
+     ============================================================ -->
+<header class="app-header">
+  <div class="logo">Agenda<span>Pro</span></div>
+  <nav class="header-nav">
+    <button data-tab="teacher" class="active">👨‍🏫 Professor</button>
+    <button data-tab="student">🎓 Aluno</button>
+  </nav>
+</header>
+
+<!-- ============================================================
+     TELA DE CONFIGURAÇÃO SUPABASE
+     ============================================================ -->
+<div id="config-screen" style="display:none">
+  <div class="config-screen fade-up">
+    <h2>Configuração inicial</h2>
+    <p>
+      Conecte ao seu projeto Supabase.
+      Vá em <strong>Settings → API</strong> e cole os dados abaixo.
+      As credenciais ficam salvas no dispositivo.
+    </p>
+
+    <div class="form-group">
+      <label>URL do Projeto</label>
+      <input type="url" id="config-url" placeholder="https://seuprojeto.supabase.co" />
+    </div>
+
+    <div class="form-group">
+      <label>Anon / Public Key</label>
+      <input type="text" id="config-key" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." />
+    </div>
+
+    <button id="save-config-btn" class="btn btn-primary btn-full" style="margin-top:8px">
+      Conectar e continuar →
+    </button>
+
+    <p style="margin-top:20px; font-size:0.78rem; color:var(--text-muted)">
+      Não tem conta? Crie gratuitamente em
+      <a href="https://supabase.com" target="_blank" style="color:var(--accent)">supabase.com</a>.
+      Depois execute o SQL em <code>sql/schema.sql</code> no SQL Editor.
+    </p>
+  </div>
+</div>
+
+<!-- ============================================================
+     APP PRINCIPAL
+     ============================================================ -->
+<div id="app-main" style="display:none">
+
+  <!-- ========================
+       PAINEL DO PROFESSOR
+       ======================== -->
+  <div id="teacher-panel">
+    <div class="main-content">
+
+      <div class="section-header fade-up">
+        <div>
+          <h2>Painel do Professor</h2>
+          <p>Clique nos horários para bloquear ou liberar. <span style="color:var(--danger)">Vermelho</span> = bloqueado · <span style="color:var(--accent)">Verde</span> = livre.</p>
+        </div>
+      </div>
+
+      <div class="teacher-selector fade-up">
+        <label>Professor:</label>
+        <select id="teacher-select"></select>
+      </div>
+
+      <div class="summary-bar fade-up">
+        <div class="summary-card green">
+          <div>
+            <div class="summary-value" id="stat-free">—</div>
+            <div class="summary-label">Horários<br>disponíveis</div>
+          </div>
+        </div>
+        <div class="summary-card red">
+          <div>
+            <div class="summary-value" id="stat-blocked">—</div>
+            <div class="summary-label">Bloqueados<br>por mim</div>
+          </div>
+        </div>
+        <div class="summary-card blue">
+          <div>
+            <div class="summary-value" id="stat-booked">—</div>
+            <div class="summary-label">Agendados<br>por alunos</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="legend fade-up">
+        <div class="legend-item">
+          <span class="legend-dot available"></span>
+          Disponível — clique para bloquear
+        </div>
+        <div class="legend-item">
+          <span class="legend-dot blocked"></span>
+          Bloqueado — clique para liberar
+        </div>
+        <div class="legend-item">
+          <span class="legend-dot booked"></span>
+          Agendado por aluno
+        </div>
+      </div>
+
+      <div id="week-grid-teacher" class="week-grid">
+        <div class="loading-overlay"><div class="spinner"></div><span>Carregando...</span></div>
+      </div>
+
+      <div class="fade-up" style="margin-top:8px">
+        <div class="section-header" style="margin-bottom:0; padding-bottom:16px; border-bottom:1px solid var(--border)">
+          <div><h2 style="font-size:1.2rem">Agendamentos recebidos</h2></div>
+        </div>
+        <div id="bookings-list"
+          style="background:var(--surface); border:1px solid var(--border); border-top:none; border-radius:0 0 var(--radius) var(--radius);">
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ========================
+       AGENDA DO ALUNO
+       ======================== -->
+  <div id="student-panel" style="display:none">
+    <div class="main-content">
+
+      <div class="section-header fade-up">
+        <div>
+          <h2>Agendar aula</h2>
+          <p>Escolha um professor e selecione um horário disponível.</p>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px">
+          <span style="font-size:0.8rem; color:var(--text-muted)">Disponíveis:</span>
+          <span id="available-count" class="badge badge-success">—</span>
+        </div>
+      </div>
+
+      <div class="teacher-selector fade-up">
+        <label>Professor:</label>
+        <select id="student-teacher-select"></select>
+      </div>
+
+      <div class="legend fade-up">
+        <div class="legend-item">
+          <span class="legend-dot available"></span>
+          Disponível — clique para agendar
+        </div>
+        <p style="font-size:0.78rem; color:var(--text-muted); margin-left:auto">
+          Horários ocupados não aparecem.
+        </p>
+      </div>
+
+      <div id="week-grid-student" class="week-grid">
+        <div class="loading-overlay"><div class="spinner"></div><span>Buscando horários disponíveis...</span></div>
+      </div>
+
+    </div>
+  </div>
+
+</div><!-- /#app-main -->
+
+<!-- ============================================================
+     MODAL DE AGENDAMENTO
+     ============================================================ -->
+<div class="modal-overlay" id="modal-overlay" role="dialog" aria-modal="true" aria-label="Confirmar agendamento">
+  <div class="modal">
+    <h3>Confirmar agendamento</h3>
+    <p class="modal-subtitle">Preencha seus dados para reservar o horário.</p>
+
+    <div class="modal-slot-info" id="modal-slot-info">
+      — horário selecionado —
+    </div>
+
+    <div class="form-group">
+      <label>Seu nome *</label>
+      <input type="text" id="input-student-name" placeholder="Ex: Maria Souza"
+        autocomplete="name" inputmode="text" />
+    </div>
+
+    <div class="form-group">
+      <label>E-mail (opcional)</label>
+      <input type="email" id="input-student-email" placeholder="maria@email.com"
+        autocomplete="email" inputmode="email" />
+    </div>
+
+    <div class="modal-actions">
+      <button id="modal-confirm-btn" class="btn btn-success" style="flex:1">
+        ✓ Confirmar
+      </button>
+      <button id="modal-cancel-btn" class="btn btn-outline">
+        Cancelar
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     SCRIPTS — ES Modules
+     ============================================================ -->
+<script>
+  // Injeta credenciais salvas antes dos módulos carregarem
+  const sbUrl = localStorage.getItem('sb_url');
+  const sbKey = localStorage.getItem('sb_key');
+  if (sbUrl && sbKey) {
+    window.__SB_URL = sbUrl;
+    window.__SB_KEY = sbKey;
+  }
+</script>
+
+<script type="module" src="/js/app.js"></script>
+
+</body>
+</html>

@@ -1,0 +1,690 @@
+/* ============================================================
+   AGENDA SEMANAL — Estilos principais
+   Estética: Minimalismo editorial com toques cálidos
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500;600&display=swap');
+
+/* --- Variáveis de design --- */
+:root {
+  --bg: #F7F5F0;
+  --surface: #FFFFFF;
+  --surface-2: #F0EDE7;
+  --border: #E2DDD6;
+  --text: #1A1714;
+  --text-muted: #8A8178;
+  --accent: #2D6A4F;        /* verde escuro — disponível */
+  --accent-light: #D8F3DC;
+  --danger: #C1440E;        /* terracota — bloqueado */
+  --danger-light: #FDE8DF;
+  --warning: #B5871A;
+  --warning-light: #FEF3CD;
+  --booked: #5B5EA6;        /* roxo — agendado */
+  --booked-light: #EAE9F7;
+  --shadow-sm: 0 1px 3px rgba(26,23,20,0.08);
+  --shadow-md: 0 4px 16px rgba(26,23,20,0.10);
+  --radius: 10px;
+  --radius-sm: 6px;
+  --font-display: 'DM Serif Display', Georgia, serif;
+  --font-body: 'DM Sans', sans-serif;
+  --transition: 0.18s ease;
+}
+
+/* --- Reset e base --- */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { font-size: 16px; scroll-behavior: smooth; }
+
+body {
+  font-family: var(--font-body);
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  line-height: 1.5;
+}
+
+/* --- Layout geral --- */
+.app-header {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 64px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  box-shadow: var(--shadow-sm);
+}
+
+.app-header .logo {
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+
+.app-header .logo span {
+  color: var(--accent);
+}
+
+.header-nav {
+  display: flex;
+  gap: 4px;
+}
+
+.header-nav button {
+  background: none;
+  border: none;
+  font-family: var(--font-body);
+  font-size: 0.875rem;
+  font-weight: 500;
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: all var(--transition);
+}
+
+.header-nav button:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.header-nav button.active {
+  background: var(--text);
+  color: var(--surface);
+}
+
+.main-content {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 32px 24px 64px;
+}
+
+/* --- Tela de configuração Supabase --- */
+.config-screen {
+  max-width: 520px;
+  margin: 80px auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 40px;
+  box-shadow: var(--shadow-md);
+}
+
+.config-screen h2 {
+  font-family: var(--font-display);
+  font-size: 1.6rem;
+  margin-bottom: 8px;
+}
+
+.config-screen p {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  margin-bottom: 28px;
+}
+
+.form-group {
+  margin-bottom: 18px;
+}
+
+.form-group label {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.form-group input,
+.form-group select {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-body);
+  font-size: 0.9rem;
+  background: var(--surface);
+  color: var(--text);
+  transition: border-color var(--transition);
+}
+
+.form-group input:focus,
+.form-group select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* --- Botões --- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-body);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.btn-primary {
+  background: var(--text);
+  color: var(--surface);
+}
+
+.btn-primary:hover { background: #333; }
+
+.btn-success {
+  background: var(--accent);
+  color: white;
+}
+
+.btn-success:hover { background: #245c41; }
+
+.btn-danger {
+  background: var(--danger-light);
+  color: var(--danger);
+}
+
+.btn-danger:hover { background: #f9d3c5; }
+
+.btn-outline {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.btn-outline:hover { background: var(--surface-2); }
+
+.btn-full { width: 100%; justify-content: center; }
+
+/* --- Cabeçalho da seção --- */
+.section-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.section-header h2 {
+  font-family: var(--font-display);
+  font-size: 1.8rem;
+  letter-spacing: -0.02em;
+}
+
+.section-header p {
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  margin-top: 4px;
+}
+
+/* --- Seletor de professor --- */
+.teacher-selector {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px 24px;
+  margin-bottom: 28px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.teacher-selector label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.teacher-selector select {
+  flex: 1;
+  min-width: 200px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-body);
+  font-size: 0.9rem;
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.teacher-selector select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* --- Grade semanal --- */
+.week-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 12px;
+  margin-bottom: 32px;
+}
+
+.day-column {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.day-header {
+  padding: 12px 8px;
+  text-align: center;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.day-header .day-name {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.day-header .day-label {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-top: 2px;
+}
+
+/* --- Períodos do dia --- */
+.period-section {
+  padding: 10px 8px;
+}
+
+.period-section:not(:last-child) {
+  border-bottom: 1px solid var(--surface-2);
+}
+
+.period-label {
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+  padding: 0 2px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.period-label::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.period-manha .period-label::before { background: #F4A261; }
+.period-tarde .period-label::before { background: #E76F51; }
+.period-noite .period-label::before { background: #264653; }
+
+/* --- Slots de horário --- */
+.slot {
+  width: 100%;
+  display: block;
+  padding: 6px 4px;
+  margin-bottom: 4px;
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-align: center;
+  cursor: pointer;
+  border: 1.5px solid transparent;
+  transition: all var(--transition);
+  font-family: var(--font-body);
+  letter-spacing: 0.01em;
+}
+
+/* Professor: disponível */
+.slot.available {
+  background: var(--accent-light);
+  color: var(--accent);
+  border-color: #b7e4c7;
+}
+
+.slot.available:hover {
+  background: #b7e4c7;
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Professor: bloqueado por ele */
+.slot.blocked {
+  background: var(--danger-light);
+  color: var(--danger);
+  border-color: #f9c4b0;
+}
+
+.slot.blocked:hover {
+  background: #f9c4b0;
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Agendado por aluno */
+.slot.booked {
+  background: var(--booked-light);
+  color: var(--booked);
+  border-color: #cccde8;
+  cursor: default;
+}
+
+/* Aluno: disponível */
+.slot.student-available {
+  background: var(--accent-light);
+  color: var(--accent);
+  border-color: #b7e4c7;
+}
+
+.slot.student-available:hover {
+  background: #b7e4c7;
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Aluno: selecionado */
+.slot.selected {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(45,106,79,0.3);
+}
+
+/* --- Legenda --- */
+.legend {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  padding: 16px 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 24px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.legend-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.legend-dot.available { background: var(--accent-light); border: 1.5px solid #b7e4c7; }
+.legend-dot.blocked { background: var(--danger-light); border: 1.5px solid #f9c4b0; }
+.legend-dot.booked { background: var(--booked-light); border: 1.5px solid #cccde8; }
+
+/* --- Modal de agendamento --- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(26,23,20,0.5);
+  backdrop-filter: blur(3px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition);
+}
+
+.modal-overlay.open {
+  opacity: 1;
+  pointer-events: all;
+}
+
+.modal {
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 36px;
+  width: 100%;
+  max-width: 440px;
+  box-shadow: var(--shadow-md);
+  transform: translateY(12px);
+  transition: transform var(--transition);
+}
+
+.modal-overlay.open .modal {
+  transform: translateY(0);
+}
+
+.modal h3 {
+  font-family: var(--font-display);
+  font-size: 1.4rem;
+  margin-bottom: 6px;
+}
+
+.modal .modal-subtitle {
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  margin-bottom: 24px;
+}
+
+.modal-slot-info {
+  background: var(--accent-light);
+  border: 1px solid #b7e4c7;
+  border-radius: var(--radius-sm);
+  padding: 12px 16px;
+  margin-bottom: 20px;
+  font-size: 0.875rem;
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+/* --- Toast / Notificação --- */
+.toast-container {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.toast {
+  background: var(--text);
+  color: var(--surface);
+  padding: 12px 20px;
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+  font-weight: 500;
+  box-shadow: var(--shadow-md);
+  transform: translateX(120%);
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  pointer-events: all;
+  max-width: 320px;
+}
+
+.toast.show { transform: translateX(0); }
+.toast.success { background: var(--accent); }
+.toast.error { background: var(--danger); }
+
+/* --- Estado de carregamento --- */
+.loading-overlay {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 0;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  gap: 10px;
+}
+
+.spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* --- Estado vazio --- */
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text-muted);
+}
+
+.empty-state .empty-icon {
+  font-size: 2.5rem;
+  margin-bottom: 16px;
+}
+
+.empty-state p {
+  font-size: 0.95rem;
+}
+
+/* --- Badge de contagem --- */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.badge-success { background: var(--accent-light); color: var(--accent); }
+.badge-danger { background: var(--danger-light); color: var(--danger); }
+
+/* --- Painel de resumo (professor) --- */
+.summary-bar {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.summary-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 14px 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 140px;
+}
+
+.summary-card .summary-value {
+  font-family: var(--font-display);
+  font-size: 1.6rem;
+  line-height: 1;
+}
+
+.summary-card .summary-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  line-height: 1.3;
+}
+
+.summary-card.green .summary-value { color: var(--accent); }
+.summary-card.red .summary-value { color: var(--danger); }
+.summary-card.blue .summary-value { color: var(--booked); }
+
+/* --- Responsivo --- */
+@media (max-width: 900px) {
+  .week-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .app-header { padding: 0 16px; }
+  .app-header .logo { font-size: 1.1rem; }
+  .main-content { padding: 20px 16px 48px; }
+
+  .week-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .header-nav button {
+    padding: 6px 10px;
+    font-size: 0.8rem;
+  }
+
+  .section-header h2 { font-size: 1.4rem; }
+
+  .modal { padding: 24px; }
+
+  .summary-bar { gap: 8px; }
+  .summary-card { padding: 12px 14px; }
+
+  .legend { gap: 12px; }
+}
+
+@media (max-width: 400px) {
+  .week-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* --- Animações de entrada --- */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.fade-up {
+  animation: fadeUp 0.3s ease forwards;
+}
+
+.day-column {
+  animation: fadeUp 0.3s ease forwards;
+  animation-fill-mode: both;
+}
+
+.day-column:nth-child(1) { animation-delay: 0.02s; }
+.day-column:nth-child(2) { animation-delay: 0.05s; }
+.day-column:nth-child(3) { animation-delay: 0.08s; }
+.day-column:nth-child(4) { animation-delay: 0.11s; }
+.day-column:nth-child(5) { animation-delay: 0.14s; }
+.day-column:nth-child(6) { animation-delay: 0.17s; }
+.day-column:nth-child(7) { animation-delay: 0.20s; }
