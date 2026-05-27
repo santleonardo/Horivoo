@@ -23,7 +23,7 @@
 
   <!-- Open Graph -->
   <meta property="og:title" content="Horivoo — Agenda de Professores" />
-  <meta property="og:description" content="Gerencie horários semanais. Professores bloqueiam, alunos agendam." />
+  <meta property="og:description" content="Gerencie horários semanais. Professores bloqueiam, alunos agendam, coordenadores administram." />
   <meta property="og:image" content="/icons/icon-512.png" />
   <meta property="og:type" content="website" />
 
@@ -54,6 +54,7 @@
   <nav class="header-nav">
     <button data-tab="teacher" class="active">Professor</button>
     <button data-tab="student">Aluno</button>
+    <button data-tab="coordinator">Coordenador</button>
   </nav>
   <div class="header-user">
     <span id="header-guest" style="display:none; font-size:0.8rem; color:var(--text-muted)">Visitante</span>
@@ -189,7 +190,8 @@
 
     <p class="auth-hint">
       Professores: crie uma conta para gerenciar seus horários.<br>
-      Alunos: entre como visitante para ver horários e agendar.
+      Alunos: entre como visitante para ver horários e agendar.<br>
+      Coordenadores: faça login com conta de coordenador.
     </p>
   </div>
 </div>
@@ -308,10 +310,104 @@
     </div>
   </div>
 
+  <!-- ========================
+       PAINEL DO COORDENADOR
+       ======================== -->
+  <div id="coordinator-panel" style="display:none">
+    <div class="main-content">
+
+      <div class="section-header fade-up">
+        <div>
+          <h2>Painel do Coordenador</h2>
+          <p>Visualize e gerencie todos os horários de professores e alunos.</p>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+          <button id="coord-share-btn" class="btn btn-outline" title="Compartilhar como imagem">
+            📤 Compartilhar
+          </button>
+        </div>
+      </div>
+
+      <!-- Seletor de professor -->
+      <div class="teacher-selector fade-up">
+        <label>Professor:</label>
+        <select id="coord-teacher-select"></select>
+      </div>
+
+      <!-- Estatísticas -->
+      <div class="summary-bar fade-up" id="coord-stats">
+        <div class="summary-card green"><div><div class="summary-value">&mdash;</div><div class="summary-label">Disponíveis</div></div></div>
+        <div class="summary-card red"><div><div class="summary-value">&mdash;</div><div class="summary-label">Bloqueados</div></div></div>
+        <div class="summary-card blue"><div><div class="summary-value">&mdash;</div><div class="summary-label">Agendados</div></div></div>
+      </div>
+
+      <!-- Barra de pesquisa -->
+      <div class="coord-search-bar fade-up">
+        <div class="coord-search-input-wrap">
+          <span class="coord-search-icon">🔍</span>
+          <input type="text" id="coord-search" placeholder="Pesquisar horário, professor ou aluno..." autocomplete="off" />
+        </div>
+        <div class="coord-filter-group">
+          <button class="coord-filter-btn active" data-filter="all">Todos</button>
+          <button class="coord-filter-btn" data-filter="hour">Horário</button>
+          <button class="coord-filter-btn" data-filter="teacher">Professor</button>
+          <button class="coord-filter-btn" data-filter="student">Aluno</button>
+        </div>
+      </div>
+
+      <!-- Grade semanal -->
+      <div class="legend fade-up">
+        <div class="legend-item">
+          <span class="legend-dot available"></span>
+          Disponível
+        </div>
+        <div class="legend-item">
+          <span class="legend-dot blocked"></span>
+          Bloqueado
+        </div>
+        <div class="legend-item">
+          <span class="legend-dot booked"></span>
+          Agendado
+        </div>
+        <p style="font-size:0.78rem; color:var(--text-muted); margin-left:auto">
+          Clique em qualquer horário para editar.
+        </p>
+      </div>
+
+      <div id="coord-week-grid" class="week-grid">
+        <div class="loading-overlay"><div class="spinner"></div><span>Carregando...</span></div>
+      </div>
+
+      <!-- Tabela detalhada -->
+      <div class="fade-up" style="margin-top:8px">
+        <div class="section-header" style="margin-bottom:0; padding-bottom:16px; border-bottom:1px solid var(--border)">
+          <div><h2 style="font-size:1.2rem">Todos os horários</h2></div>
+        </div>
+      </div>
+      <div class="coord-table-wrap">
+        <table class="coord-table">
+          <thead>
+            <tr>
+              <th>Professor</th>
+              <th>Dia</th>
+              <th>Hora</th>
+              <th>Aluno</th>
+              <th>Status</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody id="coord-table-body">
+          </tbody>
+        </table>
+      </div>
+
+    </div>
+  </div>
+
 </div><!-- /#app-main -->
 
 <!-- ============================================================
-     MODAL DE AGENDAMENTO
+     MODAL DE AGENDAMENTO (aluno)
      ============================================================ -->
 <div class="modal-overlay" id="modal-overlay" role="dialog" aria-modal="true" aria-label="Confirmar agendamento">
   <div class="modal">
@@ -346,15 +442,79 @@
 </div>
 
 <!-- ============================================================
-     SCRIPTS — ES Modules
+     MODAL DE EDIÇÃO DO COORDENADOR
+     ============================================================ -->
+<div class="modal-overlay" id="coord-edit-overlay" role="dialog" aria-modal="true" aria-label="Editar horário">
+  <div class="modal coord-edit-modal">
+    <h3 id="coord-edit-title">Editar horário</h3>
+    <div class="modal-slot-info" id="coord-edit-info">&mdash;</div>
+
+    <input type="hidden" id="coord-edit-teacher" />
+    <input type="hidden" id="coord-edit-day" />
+    <input type="hidden" id="coord-edit-hour" />
+
+    <div id="coord-edit-student-fields">
+      <div class="form-group">
+        <label>Nome do aluno</label>
+        <input type="text" id="coord-edit-student-name" placeholder="Ex: Maria Souza" />
+      </div>
+      <div class="form-group">
+        <label>E-mail do aluno (opcional)</label>
+        <input type="email" id="coord-edit-student-email" placeholder="maria@email.com" />
+      </div>
+    </div>
+
+    <div class="modal-actions" id="coord-edit-actions">
+      <!-- Botões dinâmicos inseridos pelo JS -->
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     SCRIPTS
      ============================================================ -->
 <script>
+  // Recupera credenciais do localStorage antes do módulo carregar
   const sbUrl = localStorage.getItem('sb_url');
   const sbKey = localStorage.getItem('sb_key');
   if (sbUrl && sbKey) {
     window.__SB_URL = sbUrl;
     window.__SB_KEY = sbKey;
   }
+
+  // Handler de callback de autenticação (Supabase #access_token=...)
+  (function() {
+    var hash = window.location.hash;
+    if (!hash || hash.length < 2) return;
+    try {
+      var params = new URLSearchParams(hash.substring(1));
+      var accessToken = params.get('access_token');
+      if (!accessToken) return;
+
+      var parts = accessToken.split('.');
+      if (parts.length !== 3) return;
+
+      var payload = JSON.parse(atob(parts[1]));
+      var session = {
+        access_token: accessToken,
+        refresh_token: params.get('refresh_token') || '',
+        expires_at: params.get('expires_at') ? parseInt(params.get('expires_at')) : Math.floor(Date.now() / 1000 + 3600),
+        user: {
+          id: payload.sub,
+          email: payload.email,
+          email_confirmed: true,
+          user_metadata: payload.user_metadata || {},
+          aud: payload.aud,
+          role: payload.role
+        }
+      };
+
+      localStorage.setItem('horivoo_session', JSON.stringify(session));
+      history.replaceState({}, '', window.location.pathname + window.location.search);
+    } catch(e) {
+      console.error('[Auth Callback] Erro:', e);
+    }
+  })();
 </script>
 
 <script type="module" src="/js/app.js"></script>
