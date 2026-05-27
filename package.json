@@ -1,0 +1,15 @@
+{
+  "name": "horivoo",
+  "version": "1.1.0",
+  "description": "Agenda semanal para professores e alunos — Versão TypeScript",
+  "private": true,
+  "scripts": {
+    "build": "node build.js",
+    "build:tsc": "tsc",
+    "watch": "tsc --watch",
+    "serve": "npx serve dist -l 3000"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}
