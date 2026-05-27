@@ -1,6 +1,6 @@
 /**
  * api.js — Serviço de comunicação com o Supabase
- * Suporta chamadas autenticadas (professor) e anônimas (aluno)
+ * Suporta chamadas autenticadas (professor/coordenador) e anônimas (aluno)
  */
 
 import { SUPABASE_URL as CFG_URL, SUPABASE_KEY as CFG_KEY } from './config.js';
@@ -10,7 +10,6 @@ const SUPABASE_URL = window.__SB_URL || CFG_URL;
 const SUPABASE_KEY = window.__SB_KEY || CFG_KEY;
 
 // Helper de fetch com tratamento de erros
-// Usa token de autenticação quando disponível (professor logado)
 async function req(path, options = {}) {
   const url = `${SUPABASE_URL}/rest/v1/${path}`;
 
@@ -23,10 +22,8 @@ async function req(path, options = {}) {
   };
 
   if (token) {
-    // Professor logado: usa access_token pessoal
     headers['Authorization'] = `Bearer ${token}`;
   } else {
-    // Aluno / anônimo: usa anon key
     headers['Authorization'] = `Bearer ${SUPABASE_KEY}`;
   }
 
@@ -55,23 +52,20 @@ export async function getTeacherByUserId(userId) {
 }
 
 // ================================================================
-// HORÁRIOS BLOQUEADOS (pelo professor)
+// HORÁRIOS BLOQUEADOS (pelo professor / coordenador)
 // ================================================================
 
-/**
- * Retorna todos os horários bloqueados de um professor
- * @param {string} teacherId
- */
+/** Retorna todos os horários bloqueados de um professor */
 export async function getBlockedSlots(teacherId) {
-  return req(`blocked_slots?teacher_id=eq.${teacherId}&select=id,day,hour`);
+  return req(`blocked_slots?teacher_id=eq.${teacherId}&select=id,day,hour,teacher_id`);
 }
 
-/**
- * Bloqueia um horário
- * @param {string} teacherId
- * @param {string} day - ex: 'segunda'
- * @param {string} hour - ex: '08:00'
- */
+/** Retorna todos os horários bloqueados (todos os professores) */
+export async function getAllBlockedSlots() {
+  return req('blocked_slots?select=id,day,hour,teacher_id&order=day,hour');
+}
+
+/** Bloqueia um horário */
 export async function blockSlot(teacherId, day, hour) {
   return req('blocked_slots', {
     method: 'POST',
@@ -79,30 +73,26 @@ export async function blockSlot(teacherId, day, hour) {
   });
 }
 
-/**
- * Desbloqueia um horário
- * @param {string} slotId - id do registro em blocked_slots
- */
+/** Desbloqueia um horário */
 export async function unblockSlot(slotId) {
   return req(`blocked_slots?id=eq.${slotId}`, { method: 'DELETE' });
 }
 
 // ================================================================
-// AGENDAMENTOS (feitos pelos alunos)
+// AGENDAMENTOS (feitos pelos alunos / coordenador)
 // ================================================================
 
-/**
- * Retorna todos os agendamentos de um professor
- * @param {string} teacherId
- */
+/** Retorna todos os agendamentos de um professor */
 export async function getBookings(teacherId) {
-  return req(`bookings?teacher_id=eq.${teacherId}&select=id,day,hour,student_name,student_email,created_at&order=day,hour`);
+  return req(`bookings?teacher_id=eq.${teacherId}&select=id,day,hour,student_name,student_email,created_at,teacher_id&order=day,hour`);
 }
 
-/**
- * Cria um agendamento
- * @param {object} data - { teacher_id, student_name, student_email, day, hour }
- */
+/** Retorna todos os agendamentos (todos os professores) */
+export async function getAllBookings() {
+  return req('bookings?select=id,day,hour,student_name,student_email,created_at,teacher_id&order=day,hour');
+}
+
+/** Cria um agendamento */
 export async function createBooking(data) {
   return req('bookings', {
     method: 'POST',
@@ -110,25 +100,23 @@ export async function createBooking(data) {
   });
 }
 
-/**
- * Cancela um agendamento
- * @param {string} bookingId
- */
+/** Atualiza um agendamento */
+export async function updateBooking(bookingId, data) {
+  return req(`bookings?id=eq.${bookingId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data)
+  });
+}
+
+/** Cancela um agendamento */
 export async function cancelBooking(bookingId) {
   return req(`bookings?id=eq.${bookingId}`, { method: 'DELETE' });
 }
 
 // ================================================================
-// REALTIME — escuta mudanças via Server-Sent Events (Supabase)
+// REALTIME
 // ================================================================
 
-/**
- * Assina mudanças em tempo real numa tabela.
- * Retorna uma função para cancelar a assinatura.
- *
- * @param {string} table - 'blocked_slots' | 'bookings'
- * @param {function} callback - chamado a cada mudança
- */
 export function subscribeTable(table, callback) {
   const wsUrl = SUPABASE_URL
     .replace('https://', 'wss://')
@@ -153,7 +141,7 @@ export function subscribeTable(table, callback) {
   };
 
   ws.onerror = () => {
-    console.warn(`[Realtime] Erro na conexão com ${table}. Usando polling.`);
+    console.warn(`[Realtime] Erro na conexão com ${table}.`);
   };
 
   return () => ws.close();

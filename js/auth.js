@@ -143,7 +143,7 @@ export async function forgotPassword(email) {
 /**
  * Salva sessão no localStorage
  */
-function saveSession(session) {
+export function saveSession(session) {
   localStorage.setItem(AUTH_KEY, JSON.stringify(session));
 }
 
@@ -172,7 +172,7 @@ export function getSession() {
 /**
  * Remove sessão
  */
-function clearSession() {
+export function clearSession() {
   localStorage.removeItem(AUTH_KEY);
 }
 

@@ -54,7 +54,7 @@ export function openBookingModal(slotInfo, onConfirm) {
   const title   = document.getElementById('modal-slot-info');
 
   const dayFull = slotInfo.dayFull || slotInfo.day;
-  title.textContent = `📅 ${dayFull} às ${slotInfo.hour} — ${slotInfo.teacherName || 'Professor'}`;
+  title.textContent = `${dayFull} às ${slotInfo.hour} — ${slotInfo.teacherName || 'Professor'}`;
 
   document.getElementById('input-student-name').value  = '';
   document.getElementById('input-student-email').value = '';
@@ -86,7 +86,8 @@ export function openBookingModal(slotInfo, onConfirm) {
 }
 
 export function closeModal() {
-  document.getElementById('modal-overlay').classList.remove('open');
+  document.getElementById('modal-overlay')?.classList.remove('open');
+  document.getElementById('coord-edit-overlay')?.classList.remove('open');
 }
 
 // ================================================================
@@ -119,88 +120,201 @@ import { SCHEDULE, DAYS } from './config.js';
  * Renderiza a grade semanal.
  * 
  * @param {string} containerId - id do elemento que receberá a grade
- * @param {object[]} blocked - array de { id, day, hour }
- * @param {object[]} booked  - array de { id, day, hour, student_name }
- * @param {string} mode - 'teacher' | 'student'
- * @param {object} callbacks - { onSlotClick(day, hour, currentStatus, slotId) }
+ * @param {object[]} blocked - array de { id, day, hour, teacher_name?, teacher_id? }
+ * @param {object[]} booked  - array de { id, day, hour, student_name, teacher_name?, teacher_id? }
+ * @param {string} mode - 'teacher' | 'student' | 'coordinator'
+ * @param {object} callbacks - { onSlotClick({day, hour, status, id, teacherId, teacherName}) }
  */
 export function renderWeekGrid(containerId, blocked, booked, mode, callbacks = {}) {
   const container = document.getElementById(containerId);
   if (!container) return;
 
   // Índices para lookup rápido O(1)
-  const blockedMap = {}; // "day:hour" → id
-  const bookedMap  = {}; // "day:hour" → { id, student_name }
+  const blockedMap = {}; // "day:hour" ou "teacher:day:hour" → id
+  const bookedMap  = {}; // "day:hour" ou "teacher:day:hour" → { id, student_name }
 
-  blocked.forEach(s => { blockedMap[`${s.day}:${s.hour}`] = s.id; });
-  booked.forEach(b  => { bookedMap[`${b.day}:${b.hour}`]  = b; });
+  blocked.forEach(s => {
+    const key = mode === 'coordinator' && s.teacher_name
+      ? `${s.teacher_name}:${s.day}:${s.hour}`
+      : `${s.day}:${s.hour}`;
+    blockedMap[key] = s;
+  });
+
+  booked.forEach(b => {
+    const key = mode === 'coordinator' && b.teacher_name
+      ? `${b.teacher_name}:${b.day}:${b.hour}`
+      : `${b.day}:${b.hour}`;
+    bookedMap[key] = b;
+  });
 
   let html = '';
 
-  DAYS.forEach(day => {
-    html += `<div class="day-column">
-      <div class="day-header">
-        <div class="day-name">${day.label}</div>
-        <div class="day-label">${day.full}</div>
-      </div>`;
+  if (mode === 'coordinator' && !callbacks.teacherName) {
+    // Visão "todos os professores" — grade por professor
+    // Agrupar por professor
+    const teacherNames = [...new Set([
+      ...blocked.map(s => s.teacher_name || callbacks.teacherName),
+      ...booked.map(b => b.teacher_name || callbacks.teacherName)
+    ])];
 
-    Object.entries(SCHEDULE).forEach(([periodKey, period]) => {
-      html += `<div class="period-section period-${periodKey}">
-        <div class="period-label">${period.label}</div>`;
+    teacherNames.forEach(tname => {
+      html += `<div class="coord-teacher-section">
+        <div class="coord-teacher-label">${tname}</div>
+        <div class="week-grid">`;
 
-      period.hours.forEach(hour => {
-        const key       = `${day.key}:${hour}`;
-        const isBlocked = key in blockedMap;
-        const isBooked  = key in bookedMap;
-        const slotId    = isBlocked ? blockedMap[key] : (isBooked ? bookedMap[key].id : null);
-        const booking   = isBooked ? bookedMap[key] : null;
+      DAYS.forEach(day => {
+        html += `<div class="day-column">
+          <div class="day-header">
+            <div class="day-name">${day.label}</div>
+            <div class="day-label">${day.full}</div>
+          </div>`;
 
-        if (mode === 'teacher') {
-          let cls, label, title;
+        Object.entries(SCHEDULE).forEach(([periodKey, period]) => {
+          html += `<div class="period-section period-${periodKey}">
+            <div class="period-label">${period.label}</div>`;
 
-          if (isBooked) {
-            cls   = 'booked';
-            label = `${hour} 👤`;
-            title = `Agendado: ${booking.student_name}`;
-          } else if (isBlocked) {
-            cls   = 'blocked';
-            label = `${hour} ✕`;
-            title = 'Clique para desbloquear';
-          } else {
-            cls   = 'available';
-            label = `${hour}`;
-            title = 'Clique para bloquear';
-          }
+          period.hours.forEach(hour => {
+            const key = `${tname}:${day.key}:${hour}`;
+            const blockData = blockedMap[key];
+            const bookData  = bookedMap[key];
+            const isBlocked = !!blockData;
+            const isBooked  = !!bookData;
+            const slotId    = isBlocked ? blockData.id : (isBooked ? bookData.id : null);
 
-          html += `<button
-            class="slot ${cls}"
-            data-day="${day.key}"
-            data-hour="${hour}"
-            data-status="${isBooked ? 'booked' : (isBlocked ? 'blocked' : 'available')}"
-            data-id="${slotId || ''}"
-            title="${title}"
-            ${isBooked ? 'disabled' : ''}
-          >${label}</button>`;
+            let cls, label, title;
+            if (isBooked) {
+              cls   = 'booked';
+              label = `${hour} 👤 ${bookData.student_name}`;
+              title = `Agendado: ${bookData.student_name} — clique para editar`;
+            } else if (isBlocked) {
+              cls   = 'blocked';
+              label = `${hour} ✕`;
+              title = 'Bloqueado — clique para editar';
+            } else {
+              cls   = 'available';
+              label = hour;
+              title = 'Disponível — clique para agendar ou bloquear';
+            }
 
-        } else {
-          // Modo aluno: só renderiza se disponível
-          if (!isBlocked && !isBooked) {
+            const tid = (isBlocked ? blockData.teacher_id : (isBooked ? bookData.teacher_id : null)) || '';
+
             html += `<button
-              class="slot student-available"
+              class="slot ${cls}"
               data-day="${day.key}"
-              data-day-full="${day.full}"
               data-hour="${hour}"
-              title="Clique para agendar"
-            >${hour}</button>`;
-          }
-        }
+              data-status="${isBooked ? 'booked' : (isBlocked ? 'blocked' : 'available')}"
+              data-id="${slotId || ''}"
+              data-teacher-id="${tid}"
+              data-teacher-name="${tname}"
+              title="${title}"
+            >${label}</button>`;
+          });
+
+          html += `</div>`;
+        });
+
+        html += `</div>`;
       });
 
-      html += `</div>`; // .period-section
+      html += `</div></div>`;
     });
 
-    html += `</div>`; // .day-column
-  });
+  } else {
+    // Visão de um professor ou professor/aluno
+    DAYS.forEach(day => {
+      html += `<div class="day-column">
+        <div class="day-header">
+          <div class="day-name">${day.label}</div>
+          <div class="day-label">${day.full}</div>
+        </div>`;
+
+      Object.entries(SCHEDULE).forEach(([periodKey, period]) => {
+        html += `<div class="period-section period-${periodKey}">
+          <div class="period-label">${period.label}</div>`;
+
+        period.hours.forEach(hour => {
+          const key       = `${day.key}:${hour}`;
+          const isBlocked = key in blockedMap;
+          const isBooked  = key in bookedMap;
+          const slotId    = isBlocked ? blockedMap[key].id : (isBooked ? bookedMap[key].id : null);
+          const booking   = isBooked ? bookedMap[key] : null;
+
+          if (mode === 'teacher') {
+            let cls, label, title;
+
+            if (isBooked) {
+              cls   = 'booked';
+              label = `${hour} 👤`;
+              title = `Agendado: ${booking.student_name}`;
+            } else if (isBlocked) {
+              cls   = 'blocked';
+              label = `${hour} ✕`;
+              title = 'Clique para desbloquear';
+            } else {
+              cls   = 'available';
+              label = `${hour}`;
+              title = 'Clique para bloquear';
+            }
+
+            html += `<button
+              class="slot ${cls}"
+              data-day="${day.key}"
+              data-hour="${hour}"
+              data-status="${isBooked ? 'booked' : (isBlocked ? 'blocked' : 'available')}"
+              data-id="${slotId || ''}"
+              title="${title}"
+              ${isBooked ? 'disabled' : ''}
+            >${label}</button>`;
+
+          } else if (mode === 'coordinator') {
+            // Coordenador — visão de um professor
+            let cls, label, title;
+
+            if (isBooked) {
+              cls   = 'booked';
+              label = `${hour} 👤 ${booking.student_name}`;
+              title = `Agendado: ${booking.student_name} — clique para editar`;
+            } else if (isBlocked) {
+              cls   = 'blocked';
+              label = `${hour} ✕`;
+              title = 'Bloqueado — clique para editar';
+            } else {
+              cls   = 'available';
+              label = hour;
+              title = 'Disponível — clique para agendar ou bloquear';
+            }
+
+            html += `<button
+              class="slot ${cls}"
+              data-day="${day.key}"
+              data-hour="${hour}"
+              data-status="${isBooked ? 'booked' : (isBlocked ? 'blocked' : 'available')}"
+              data-id="${slotId || ''}"
+              data-teacher-id="${currentTeacherId || ''}"
+              data-teacher-name="${callbacks.teacherName || ''}"
+              title="${title}"
+            >${label}</button>`;
+
+          } else {
+            // Modo aluno: só renderiza se disponível
+            if (!isBlocked && !isBooked) {
+              html += `<button
+                class="slot student-available"
+                data-day="${day.key}"
+                data-day-full="${day.full}"
+                data-hour="${hour}"
+                title="Clique para agendar"
+              >${hour}</button>`;
+            }
+          }
+        });
+
+        html += `</div>`; // .period-section
+      });
+
+      html += `</div>`; // .day-column
+    });
+  }
 
   container.innerHTML = html;
 
@@ -213,7 +327,9 @@ export function renderWeekGrid(containerId, blocked, booked, mode, callbacks = {
           dayFull: btn.dataset.dayFull,
           hour:    btn.dataset.hour,
           status:  btn.dataset.status,
-          id:      btn.dataset.id || null
+          id:      btn.dataset.id || null,
+          teacherId:   btn.dataset.teacherId || null,
+          teacherName: btn.dataset.teacherName || null
         });
       }
     });

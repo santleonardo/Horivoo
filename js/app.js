@@ -1,11 +1,12 @@
 /**
  * app.js — Ponto de entrada da aplicação
- * Controla autenticação, abas (Professor / Aluno) e inicialização.
+ * Controla autenticação, abas (Professor / Aluno / Coordenador) e inicialização.
  */
 
 import { SUPABASE_URL, SUPABASE_KEY } from './config.js';
 import { initTeacherPanel } from './teacher.js';
 import { initStudentPanel }  from './student.js';
+import { initCoordinatorPanel } from './coordinator.js';
 import { registerSW, setupInstallPrompt, setupNetworkStatus, getInitialTab, isStandalone } from './pwa.js';
 import { signIn, signUp, signOut, getSession, isLoggedIn, getUser, forgotPassword } from './auth.js';
 import { getTeacherByUserId } from './api.js';
@@ -16,11 +17,54 @@ import { toast } from './ui.js';
 // ================================================================
 
 function isConfigured() {
+  const url = window.__SB_URL || SUPABASE_URL;
+  const key = window.__SB_KEY || SUPABASE_KEY;
   return (
-    SUPABASE_URL !== 'SUA_URL_AQUI' &&
-    SUPABASE_KEY !== 'SUA_ANON_KEY_AQUI' &&
-    SUPABASE_URL.startsWith('https://')
+    url !== 'SUA_URL_AQUI' &&
+    key !== 'SUA_ANON_KEY_AQUI' &&
+    url.startsWith('https://')
   );
+}
+
+// ================================================================
+// HANDLER DE CALLBACK DE AUTENTICAÇÃO (#access_token=...)
+// ================================================================
+
+function handleAuthCallback() {
+  const hash = window.location.hash;
+  if (!hash || hash.length < 2) return false;
+
+  const params = new URLSearchParams(hash.substring(1));
+  const accessToken  = params.get('access_token');
+  if (!accessToken) return false;
+
+  try {
+    const parts = accessToken.split('.');
+    if (parts.length !== 3) throw new Error('JWT inválido');
+    const payload = JSON.parse(atob(parts[1]));
+
+    const session = {
+      access_token: accessToken,
+      refresh_token: params.get('refresh_token') || '',
+      expires_at: params.get('expires_at') ? parseInt(params.get('expires_at')) : Math.floor(Date.now() / 1000 + 3600),
+      user: {
+        id: payload.sub,
+        email: payload.email,
+        email_confirmed: true,
+        user_metadata: payload.user_metadata || {},
+        aud: payload.aud,
+        role: payload.role
+      }
+    };
+
+    localStorage.setItem('horivoo_session', JSON.stringify(session));
+    history.replaceState({}, '', window.location.pathname + window.location.search);
+    console.log('[Auth Callback] Sessão salva. Tipo:', params.get('type'));
+    return true;
+  } catch (err) {
+    console.error('[Auth Callback] Erro:', err);
+    return false;
+  }
 }
 
 // ================================================================
@@ -28,7 +72,7 @@ function isConfigured() {
 // ================================================================
 
 let currentTab  = 'teacher';
-let initialized = { teacher: false, student: false };
+let initialized = { teacher: false, student: false, coordinator: false };
 
 function switchTab(tab) {
   currentTab = tab;
@@ -37,8 +81,9 @@ function switchTab(tab) {
     btn.classList.toggle('active', btn.dataset.tab === tab);
   });
 
-  document.getElementById('teacher-panel').style.display = tab === 'teacher' ? '' : 'none';
-  document.getElementById('student-panel').style.display = tab === 'student' ? '' : 'none';
+  document.getElementById('teacher-panel').style.display     = tab === 'teacher' ? '' : 'none';
+  document.getElementById('student-panel').style.display     = tab === 'student' ? '' : 'none';
+  document.getElementById('coordinator-panel').style.display = tab === 'coordinator' ? '' : 'none';
 
   // Atualiza URL sem reload (deep link PWA)
   const url = new URL(location.href);
@@ -54,6 +99,11 @@ function switchTab(tab) {
     initialized.student = true;
     initStudentPanel();
   }
+
+  if (tab === 'coordinator' && !initialized.coordinator) {
+    initialized.coordinator = true;
+    initCoordinatorPanel();
+  }
 }
 
 // ================================================================
@@ -62,13 +112,12 @@ function switchTab(tab) {
 
 function showScreen(screenId) {
   ['config-screen', 'login-screen', 'app-main'].forEach(id => {
-    document.getElementById(id).style.display = id === screenId ? '' : 'none';
+    const el = document.getElementById(id);
+    if (el) el.style.display = id === screenId ? '' : 'none';
   });
 
-  // Controla visibilidade dos botões de navegação no header
   const navEl = document.querySelector('.header-nav');
   if (navEl) {
-    // Esconde nav quando está na tela de config ou login
     navEl.style.display = screenId === 'app-main' ? '' : 'none';
   }
 }
@@ -78,11 +127,10 @@ function showLoginScreen()  { showScreen('login-screen'); }
 function showApp()          { showScreen('app-main'); }
 
 // ================================================================
-// AUTENTICAÇÃO — Login / Signup
+// AUTENTICAÇÃO
 // ================================================================
 
 function setupAuthUI() {
-  // ---- Tabs do login (Entrar / Criar conta) ----
   const loginTabs = document.querySelectorAll('#login-screen .auth-tab');
   const loginForm = document.getElementById('login-form');
   const signupForm = document.getElementById('signup-form');
@@ -95,30 +143,22 @@ function setupAuthUI() {
     });
   });
 
-  // ---- Login ----
+  // Login
   document.getElementById('login-btn')?.addEventListener('click', async () => {
     const email    = document.getElementById('login-email').value.trim();
     const password = document.getElementById('login-password').value;
 
-    if (!email || !password) {
-      toast('Preencha e-mail e senha.', 'error');
-      return;
-    }
+    if (!email || !password) { toast('Preencha e-mail e senha.', 'error'); return; }
 
     try {
       document.getElementById('login-btn').disabled = true;
       document.getElementById('login-btn').textContent = 'Entrando...';
-
       await signIn(email, password);
       toast('Login realizado com sucesso!', 'success');
-
       setTimeout(() => location.reload(), 300);
     } catch (err) {
-      console.error(err);
-      const msg = err.message.includes('Invalid login credentials')
-        ? 'E-mail ou senha incorretos.'
-        : err.message.includes('Email not confirmed')
-        ? 'Confirme seu e-mail antes de entrar. Verifique sua caixa de entrada.'
+      const msg = err.message.includes('Invalid login credentials') ? 'E-mail ou senha incorretos.'
+        : err.message.includes('Email not confirmed') ? 'Confirme seu e-mail antes de entrar.'
         : err.message;
       toast(msg, 'error');
     } finally {
@@ -127,49 +167,30 @@ function setupAuthUI() {
     }
   });
 
-  // ---- Signup ----
+  // Signup
   document.getElementById('signup-btn')?.addEventListener('click', async () => {
     const name     = document.getElementById('signup-name').value.trim();
     const email    = document.getElementById('signup-email').value.trim();
     const password = document.getElementById('signup-password').value;
     const confirm  = document.getElementById('signup-confirm').value;
 
-    if (!name || !email || !password) {
-      toast('Preencha todos os campos.', 'error');
-      return;
-    }
-
-    if (password.length < 6) {
-      toast('A senha deve ter pelo menos 6 caracteres.', 'error');
-      return;
-    }
-
-    if (password !== confirm) {
-      toast('As senhas não coincidem.', 'error');
-      return;
-    }
+    if (!name || !email || !password) { toast('Preencha todos os campos.', 'error'); return; }
+    if (password.length < 6) { toast('A senha deve ter pelo menos 6 caracteres.', 'error'); return; }
+    if (password !== confirm) { toast('As senhas não coincidem.', 'error'); return; }
 
     try {
       document.getElementById('signup-btn').disabled = true;
       document.getElementById('signup-btn').textContent = 'Criando conta...';
-
       const result = await signUp(email, password, name);
-
       if (result.session) {
-        // Email confirmation desativado — login automático
         toast('Conta criada com sucesso!', 'success');
         setTimeout(() => location.reload(), 300);
       } else {
-        // Email confirmation ativado — precisa confirmar
-        toast('Conta criada! Verifique seu e-mail para confirmar e depois faça login.', 'success', 5000);
-        // Volta para a tab de login
-        loginTabs[0].click();
+        toast('Conta criada! Verifique seu e-mail para confirmar.', 'success', 6000);
+        loginTabs[0]?.click();
       }
     } catch (err) {
-      console.error(err);
-      const msg = err.message.includes('already registered')
-        ? 'Este e-mail já está cadastrado. Faça login.'
-        : err.message;
+      const msg = err.message.includes('already registered') ? 'Este e-mail já está cadastrado.' : err.message;
       toast(msg, 'error');
     } finally {
       document.getElementById('signup-btn').disabled = false;
@@ -177,47 +198,41 @@ function setupAuthUI() {
     }
   });
 
-  // ---- Esqueceu a senha ----
+  // Esqueceu a senha
   document.getElementById('forgot-btn')?.addEventListener('click', () => {
-    document.getElementById('login-form').style.display = 'none';
-    document.getElementById('signup-form').style.display = 'none';
+    loginForm.style.display = 'none';
+    signupForm.style.display = 'none';
     document.getElementById('forgot-form').style.display = '';
-    // Esconde tabs
     loginTabs.forEach(t => t.style.display = 'none');
   });
 
   document.getElementById('back-to-login-btn')?.addEventListener('click', () => {
     document.getElementById('forgot-form').style.display = 'none';
-    document.getElementById('login-form').style.display = '';
+    loginForm.style.display = '';
     loginTabs.forEach(t => t.style.display = '');
-    loginTabs[0].click();
+    loginTabs[0]?.click();
   });
 
   document.getElementById('forgot-submit-btn')?.addEventListener('click', async () => {
     const email = document.getElementById('forgot-email').value.trim();
-    if (!email) {
-      toast('Informe seu e-mail.', 'error');
-      return;
-    }
+    if (!email) { toast('Informe seu e-mail.', 'error'); return; }
     try {
       document.getElementById('forgot-submit-btn').disabled = true;
       document.getElementById('forgot-submit-btn').textContent = 'Enviando...';
       await forgotPassword(email);
-      toast('E-mail de recuperação enviado! Verifique sua caixa de entrada.', 'success', 5000);
-      // Volta para login
+      toast('E-mail de recuperação enviado!', 'success', 5000);
       document.getElementById('forgot-form').style.display = 'none';
-      document.getElementById('login-form').style.display = '';
+      loginForm.style.display = '';
       loginTabs.forEach(t => t.style.display = '');
-      loginTabs[0].click();
-    } catch (err) {
-      toast('Erro ao enviar e-mail. Verifique o endereço informado.', 'error');
-    } finally {
+      loginTabs[0]?.click();
+    } catch { toast('Erro ao enviar e-mail.', 'error'); }
+    finally {
       document.getElementById('forgot-submit-btn').disabled = false;
       document.getElementById('forgot-submit-btn').textContent = 'Enviar link de recuperação';
     }
   });
 
-  // ---- Continuar como aluno ----
+  // Continuar como aluno
   document.getElementById('guest-btn')?.addEventListener('click', () => {
     localStorage.setItem('horivoo_guest', 'true');
     showApp();
@@ -225,13 +240,13 @@ function setupAuthUI() {
     switchTab('student');
   });
 
-  // ---- Entrar a partir do header (convidado) ----
+  // Entrar a partir do header
   document.getElementById('login-from-header-btn')?.addEventListener('click', () => {
     localStorage.removeItem('horivoo_guest');
     showLoginScreen();
   });
 
-  // ---- Logout ----
+  // Logout
   document.getElementById('logout-btn')?.addEventListener('click', async () => {
     if (!confirm('Deseja sair da sua conta?')) return;
     await signOut();
@@ -240,13 +255,12 @@ function setupAuthUI() {
     setTimeout(() => location.reload(), 300);
   });
 
-  // ---- Enter key nos formulários ----
+  // Enter key
   ['login-email', 'login-password'].forEach(id => {
     document.getElementById(id)?.addEventListener('keydown', e => {
       if (e.key === 'Enter') document.getElementById('login-btn')?.click();
     });
   });
-
   ['signup-name', 'signup-email', 'signup-password', 'signup-confirm'].forEach(id => {
     document.getElementById(id)?.addEventListener('keydown', e => {
       if (e.key === 'Enter') document.getElementById('signup-btn')?.click();
@@ -255,7 +269,7 @@ function setupAuthUI() {
 }
 
 // ================================================================
-// HEADER — atualizar com info do professor logado
+// HEADER
 // ================================================================
 
 function updateHeader() {
@@ -267,7 +281,6 @@ function updateHeader() {
   const logoutBtn = document.getElementById('logout-btn');
 
   if (user) {
-    // Professor logado
     if (guestEl) guestEl.style.display = 'none';
     if (loginBtn) loginBtn.style.display = 'none';
     if (profEl) {
@@ -276,13 +289,11 @@ function updateHeader() {
     }
     if (logoutBtn) logoutBtn.style.display = '';
   } else if (isGuest) {
-    // Visitante / aluno — mostrar botão de login
     if (guestEl) guestEl.style.display = '';
     if (loginBtn) loginBtn.style.display = '';
     if (profEl)  profEl.style.display = 'none';
     if (logoutBtn) logoutBtn.style.display = 'none';
   } else {
-    // Sem sessão
     if (guestEl) guestEl.style.display = 'none';
     if (loginBtn) loginBtn.style.display = 'none';
     if (profEl)  profEl.style.display = 'none';
@@ -296,67 +307,51 @@ function updateHeader() {
 
 document.addEventListener('DOMContentLoaded', async () => {
 
-  // Registra Service Worker (PWA)
+  // Callback de autenticação
+  const wasCallback = handleAuthCallback();
+  if (wasCallback) toast('E-mail confirmado com sucesso!', 'success', 4000);
+
   await registerSW();
-
-  // Setup de status de rede (banner offline)
   setupNetworkStatus();
-
-  // Setup do botão de instalação
   setupInstallPrompt();
-
-  // Expõe toast globalmente para pwa.js usar
   window.__toast = toast;
 
-  // Salvar configuração Supabase
+  // Config Supabase
   document.getElementById('save-config-btn')?.addEventListener('click', () => {
     const url = document.getElementById('config-url').value.trim();
     const key = document.getElementById('config-key').value.trim();
-
-    if (!url || !key) {
-      alert('Preencha URL e API Key do Supabase.');
-      return;
-    }
-
+    if (!url || !key) { alert('Preencha URL e API Key.'); return; }
     localStorage.setItem('sb_url', url);
     localStorage.setItem('sb_key', key);
     location.reload();
   });
 
-  // Recupera credenciais
   const savedUrl = localStorage.getItem('sb_url');
   const savedKey = localStorage.getItem('sb_key');
-
   if (savedUrl && savedKey) {
     window.__SB_URL = savedUrl;
     window.__SB_KEY = savedKey;
   }
 
-  // Passo 1: Verificar configuração do Supabase
-  if (!isConfigured() && !window.__SB_URL) {
-    showConfigScreen();
-    return;
-  }
+  if (!isConfigured()) { showConfigScreen(); return; }
 
-  // Setup dos formulários de autenticação
   setupAuthUI();
 
-  // Bind de navegação do header — global, funciona quando app-main estiver visível
+  // Bind navegação do header
   document.querySelectorAll('.header-nav button[data-tab]').forEach(btn => {
     btn.addEventListener('click', () => {
-      // Só troca de aba se o app-main estiver visível
-      if (document.getElementById('app-main').style.display !== 'none') {
+      const appMain = document.getElementById('app-main');
+      if (appMain && appMain.style.display !== 'none') {
         switchTab(btn.dataset.tab);
       }
     });
   });
 
-  // Passo 2: Verificar se está logado ou é visitante
+  // Verificar sessão
   const session = getSession();
   const isGuest = localStorage.getItem('horivoo_guest') === 'true';
 
   if (session) {
-    // Professor logado — verificar se tem perfil de teacher
     const userId = session.user?.id;
     if (userId) {
       try {
@@ -367,7 +362,6 @@ document.addEventListener('DOMContentLoaded', async () => {
           showLoginScreen();
           return;
         }
-        // Salvar ID do teacher para o módulo teacher.js usar
         window.__TEACHER_ID = teacher.id;
         window.__TEACHER_NAME = teacher.name;
       } catch (err) {
@@ -379,22 +373,22 @@ document.addEventListener('DOMContentLoaded', async () => {
     showApp();
     updateHeader();
 
-    // Professor logado: iniciar na aba Professor
-    switchTab('teacher');
+    // Verificar se é coordenador pelo user_metadata.role
+    const userRole = session.user?.user_metadata?.role;
+    if (userRole === 'coordinator') {
+      switchTab('coordinator');
+    } else {
+      switchTab('teacher');
+    }
 
   } else if (isGuest) {
-    // Visitante (aluno) — ir direto para a aba aluno
     showApp();
     updateHeader();
-
     switchTab('student');
-
   } else {
-    // Nem logado, nem visitante — mostrar tela de login
     showLoginScreen();
   }
 
-  // Ajuste de UI quando rodando como app instalado
   if (isStandalone()) {
     document.body.classList.add('standalone-mode');
   }
