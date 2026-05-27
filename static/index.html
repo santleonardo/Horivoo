@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Horivoo — Agenda de Professores</title>
+
+  <!-- ======== PWA ======== -->
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#2D6A4F" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Horivoo" />
+
+  <!-- Apple touch icons -->
+  <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+  <link rel="apple-touch-icon" sizes="152x152" href="/icons/icon-152.png" />
+  <link rel="apple-touch-icon" sizes="144x144" href="/icons/icon-144.png" />
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" sizes="96x96" href="/icons/icon-96.png" />
+
+  <!-- Open Graph -->
+  <meta property="og:title" content="Horivoo — Agenda de Professores" />
+  <meta property="og:description" content="Gerencie horários semanais. Professores bloqueiam, alunos agendam, coordenadores administram." />
+  <meta property="og:image" content="/icons/icon-512.png" />
+  <meta property="og:type" content="website" />
+
+  <!-- ======== ESTILOS ======== -->
+  <link rel="stylesheet" href="/css/style.css" />
+
+  <style>
+    .app-header {
+      padding-left: max(24px, env(safe-area-inset-left));
+      padding-right: max(24px, env(safe-area-inset-right));
+      padding-top: env(safe-area-inset-top);
+    }
+    .main-content {
+      padding-bottom: max(64px, calc(48px + env(safe-area-inset-bottom)));
+    }
+    body.standalone-mode .app-header {
+      padding-top: max(12px, env(safe-area-inset-top));
+    }
+  </style>
+</head>
+<body>
+
+<!-- ============================================================
+     CABEÇALHO
+     ============================================================ -->
+<header class="app-header">
+  <div class="logo">Hori<span>voo</span></div>
+  <nav class="header-nav">
+    <button data-tab="teacher" class="active">Professor</button>
+    <button data-tab="student">Aluno</button>
+    <button data-tab="coordinator">Coordenador</button>
+  </nav>
+  <div class="header-user">
+    <span id="header-guest" style="display:none; font-size:0.8rem; color:var(--text-muted)">Visitante</span>
+    <button id="login-from-header-btn" class="btn btn-outline" style="display:none; padding:6px 14px; font-size:0.8rem; margin-left:8px">
+      Entrar
+    </button>
+    <span id="header-professor" style="display:none; font-size:0.85rem; font-weight:600; color:var(--accent)"></span>
+    <button id="logout-btn" class="btn btn-outline" style="display:none; padding:6px 14px; font-size:0.8rem; margin-left:8px">
+      Sair
+    </button>
+  </div>
+</header>
+
+<!-- ============================================================
+     TELA DE CONFIGURAÇÃO SUPABASE
+     ============================================================ -->
+<div id="config-screen" style="display:none">
+  <div class="config-screen fade-up">
+    <h2>Configuração inicial</h2>
+    <p>
+      Conecte ao seu projeto Supabase.
+      Vá em <strong>Settings &rarr; API</strong> e cole os dados abaixo.
+      As credenciais ficam salvas no dispositivo.
+    </p>
+
+    <div class="form-group">
+      <label>URL do Projeto</label>
+      <input type="url" id="config-url" placeholder="https://seuprojeto.supabase.co" />
+    </div>
+
+    <div class="form-group">
+      <label>Anon / Public Key</label>
+      <input type="text" id="config-key" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." />
+    </div>
+
+    <button id="save-config-btn" class="btn btn-primary btn-full" style="margin-top:8px">
+      Conectar e continuar &rarr;
+    </button>
+
+    <p style="margin-top:20px; font-size:0.78rem; color:var(--text-muted)">
+      Não tem conta? Crie gratuitamente em
+      <a href="https://supabase.com" target="_blank" style="color:var(--accent)">supabase.com</a>.
+      Depois execute o SQL em <code>sql/schema.sql</code> no SQL Editor.
+    </p>
+  </div>
+</div>
+
+<!-- ============================================================
+     TELA DE LOGIN / SIGNUP
+     ============================================================ -->
+<div id="login-screen" style="display:none">
+  <div class="auth-screen fade-up">
+    <div class="auth-logo">
+      Hori<span>voo</span>
+    </div>
+    <p class="auth-subtitle">Agenda semanal para professores e alunos</p>
+
+    <!-- Tabs: Entrar / Criar conta -->
+    <div class="auth-tabs">
+      <button class="auth-tab active" data-auth="login">Entrar</button>
+      <button class="auth-tab" data-auth="signup">Criar conta</button>
+    </div>
+
+    <!-- Formulário de Login -->
+    <form id="login-form" onsubmit="return false">
+      <div class="form-group">
+        <label>E-mail</label>
+        <input type="email" id="login-email" placeholder="seu@email.com" autocomplete="email" />
+      </div>
+      <div class="form-group">
+        <label>Senha</label>
+        <input type="password" id="login-password" placeholder="Sua senha" autocomplete="current-password" />
+      </div>
+      <button id="login-btn" type="button" class="btn btn-success btn-full">
+        Entrar
+      </button>
+      <div style="text-align:center; margin-top:10px">
+        <button id="forgot-btn" type="button" style="background:none; border:none; color:var(--accent); cursor:pointer; font-size:0.8rem; font-family:var(--font-body); text-decoration:underline">
+          Esqueceu a senha?
+        </button>
+      </div>
+    </form>
+
+    <!-- Formulário de Recuperar Senha -->
+    <form id="forgot-form" style="display:none" onsubmit="return false">
+      <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:16px">
+        Informe seu e-mail para receber um link de recuperação.
+      </p>
+      <div class="form-group">
+        <label>E-mail</label>
+        <input type="email" id="forgot-email" placeholder="seu@email.com" autocomplete="email" />
+      </div>
+      <button id="forgot-submit-btn" type="button" class="btn btn-success btn-full">
+        Enviar link de recuperação
+      </button>
+      <div style="text-align:center; margin-top:10px">
+        <button id="back-to-login-btn" type="button" style="background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:0.8rem; font-family:var(--font-body)">
+          &larr; Voltar ao login
+        </button>
+      </div>
+    </form>
+
+    <!-- Formulário de Signup -->
+    <form id="signup-form" style="display:none" onsubmit="return false">
+      <div class="form-group">
+        <label>Seu nome</label>
+        <input type="text" id="signup-name" placeholder="Ex: Prof. Maria Souza" autocomplete="name" />
+      </div>
+      <div class="form-group">
+        <label>E-mail</label>
+        <input type="email" id="signup-email" placeholder="seu@email.com" autocomplete="email" />
+      </div>
+      <div class="form-group">
+        <label>Senha</label>
+        <input type="password" id="signup-password" placeholder="Mínimo 6 caracteres" autocomplete="new-password" />
+      </div>
+      <div class="form-group">
+        <label>Confirmar senha</label>
+        <input type="password" id="signup-confirm" placeholder="Repita a senha" autocomplete="new-password" />
+      </div>
+      <button id="signup-btn" type="button" class="btn btn-success btn-full">
+        Criar conta
+      </button>
+    </form>
+
+    <!-- Continuar como aluno -->
+    <div class="auth-divider">
+      <span>ou</span>
+    </div>
+    <button id="guest-btn" type="button" class="btn btn-outline btn-full">
+      Continuar como aluno &rarr;
+    </button>
+
+    <p class="auth-hint">
+      Professores: crie uma conta para gerenciar seus horários.<br>
+      Alunos: entre como visitante para ver horários e agendar.<br>
+      Coordenadores: faça login com conta de coordenador.
+    </p>
+  </div>
+</div>
+
+<!-- ============================================================
+     APP PRINCIPAL
+     ============================================================ -->
+<div id="app-main" style="display:none">
+
+  <!-- ========================
+       PAINEL DO PROFESSOR
+       ======================== -->
+  <div id="teacher-panel">
+    <div class="main-content">
+
+      <div class="section-header fade-up">
+        <div>
+          <h2>Painel do Professor</h2>
+          <p>Clique nos horários para bloquear ou liberar. <span style="color:var(--danger)">Vermelho</span> = bloqueado &middot; <span style="color:var(--accent)">Verde</span> = livre.</p>
+        </div>
+      </div>
+
+      <div class="teacher-selector fade-up">
+        <label>Professor:</label>
+        <select id="teacher-select"></select>
+      </div>
+
+      <div class="summary-bar fade-up">
+        <div class="summary-card green">
+          <div>
+            <div class="summary-value" id="stat-free">&mdash;</div>
+            <div class="summary-label">Horários<br>disponíveis</div>
+          </div>
+        </div>
+        <div class="summary-card red">
+          <div>
+            <div class="summary-value" id="stat-blocked">&mdash;</div>
+            <div class="summary-label">Bloqueados<br>por mim</div>
+          </div>
+        </div>
+        <div class="summary-card blue">
+          <div>
+            <div class="summary-value" id="stat-booked">&mdash;</div>
+            <div class="summary-label">Agendados<br>por alunos</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="legend fade-up">
+        <div class="legend-item">
+          <span class="legend-dot available"></span>
+          Disponível &mdash; clique para bloquear
+        </div>
+        <div class="legend-item">
+          <span class="legend-dot blocked"></span>
+          Bloqueado &mdash; clique para liberar
+        </div>
+        <div class="legend-item">
+          <span class="legend-dot booked"></span>
+          Agendado por aluno
+        </div>
+      </div>
+
+      <div id="week-grid-teacher" class="week-grid">
+        <div class="loading-overlay"><div class="spinner"></div><span>Carregando...</span></div>
+      </div>
+
+      <div class="fade-up" style="margin-top:8px">
+        <div class="section-header" style="margin-bottom:0; padding-bottom:16px; border-bottom:1px solid var(--border)">
+          <div><h2 style="font-size:1.2rem">Agendamentos recebidos</h2></div>
+        </div>
+        <div id="bookings-list"
+          style="background:var(--surface); border:1px solid var(--border); border-top:none; border-radius:0 0 var(--radius) var(--radius);">
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ========================
+       AGENDA DO ALUNO
+       ======================== -->
+  <div id="student-panel" style="display:none">
+    <div class="main-content">
+
+      <div class="section-header fade-up">
+        <div>
+          <h2>Agendar aula</h2>
+          <p>Escolha um professor e selecione um horário disponível.</p>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px">
+          <span style="font-size:0.8rem; color:var(--text-muted)">Disponíveis:</span>
+          <span id="available-count" class="badge badge-success">&mdash;</span>
+        </div>
+      </div>
+
+      <div class="teacher-selector fade-up">
+        <label>Professor:</label>
+        <select id="student-teacher-select"></select>
+      </div>
+
+      <div class="legend fade-up">
+        <div class="legend-item">
+          <span class="legend-dot available"></span>
+          Disponível &mdash; clique para agendar
+        </div>
+        <p style="font-size:0.78rem; color:var(--text-muted); margin-left:auto">
+          Horários ocupados não aparecem.
+        </p>
+      </div>
+
+      <div id="week-grid-student" class="week-grid">
+        <div class="loading-overlay"><div class="spinner"></div><span>Buscando horários disponíveis...</span></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ========================
+       PAINEL DO COORDENADOR
+       ======================== -->
+  <div id="coordinator-panel" style="display:none">
+    <div class="main-content">
+
+      <div class="section-header fade-up">
+        <div>
+          <h2>Painel do Coordenador</h2>
+          <p>Visualize e gerencie todos os horários de professores e alunos.</p>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+          <button id="coord-share-btn" class="btn btn-outline" title="Compartilhar como imagem">
+            📤 Compartilhar
+          </button>
+        </div>
+      </div>
+
+      <!-- Seletor de professor -->
+      <div class="teacher-selector fade-up">
+        <label>Professor:</label>
+        <select id="coord-teacher-select"></select>
+      </div>
+
+      <!-- Estatísticas -->
+      <div class="summary-bar fade-up" id="coord-stats">
+        <div class="summary-card green"><div><div class="summary-value">&mdash;</div><div class="summary-label">Disponíveis</div></div></div>
+        <div class="summary-card red"><div><div class="summary-value">&mdash;</div><div class="summary-label">Bloqueados</div></div></div>
+        <div class="summary-card blue"><div><div class="summary-value">&mdash;</div><div class="summary-label">Agendados</div></div></div>
+      </div>
+
+      <!-- Barra de pesquisa -->
+      <div class="coord-search-bar fade-up">
+        <div class="coord-search-input-wrap">
+          <span class="coord-search-icon">🔍</span>
+          <input type="text" id="coord-search" placeholder="Pesquisar horário, professor ou aluno..." autocomplete="off" />
+        </div>
+        <div class="coord-filter-group">
+          <button class="coord-filter-btn active" data-filter="all">Todos</button>
+          <button class="coord-filter-btn" data-filter="hour">Horário</button>
+          <button class="coord-filter-btn" data-filter="teacher">Professor</button>
+          <button class="coord-filter-btn" data-filter="student">Aluno</button>
+        </div>
+      </div>
+
+      <!-- Grade semanal -->
+      <div class="legend fade-up">
+        <div class="legend-item">
+          <span class="legend-dot available"></span>
+          Disponível
+        </div>
+        <div class="legend-item">
+          <span class="legend-dot blocked"></span>
+          Bloqueado
+        </div>
+        <div class="legend-item">
+          <span class="legend-dot booked"></span>
+          Agendado
+        </div>
+        <p style="font-size:0.78rem; color:var(--text-muted); margin-left:auto">
+          Clique em qualquer horário para editar.
+        </p>
+      </div>
+
+      <div id="coord-week-grid" class="week-grid">
+        <div class="loading-overlay"><div class="spinner"></div><span>Carregando...</span></div>
+      </div>
+
+      <!-- Tabela detalhada -->
+      <div class="fade-up" style="margin-top:8px">
+        <div class="section-header" style="margin-bottom:0; padding-bottom:16px; border-bottom:1px solid var(--border)">
+          <div><h2 style="font-size:1.2rem">Todos os horários</h2></div>
+        </div>
+      </div>
+      <div class="coord-table-wrap">
+        <table class="coord-table">
+          <thead>
+            <tr>
+              <th>Professor</th>
+              <th>Dia</th>
+              <th>Hora</th>
+              <th>Aluno</th>
+              <th>Status</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody id="coord-table-body">
+          </tbody>
+        </table>
+      </div>
+
+    </div>
+  </div>
+
+</div><!-- /#app-main -->
+
+<!-- ============================================================
+     MODAL DE AGENDAMENTO (aluno)
+     ============================================================ -->
+<div class="modal-overlay" id="modal-overlay" role="dialog" aria-modal="true" aria-label="Confirmar agendamento">
+  <div class="modal">
+    <h3>Confirmar agendamento</h3>
+    <p class="modal-subtitle">Preencha seus dados para reservar o horário.</p>
+
+    <div class="modal-slot-info" id="modal-slot-info">
+      &mdash; horário selecionado &mdash;
+    </div>
+
+    <div class="form-group">
+      <label>Horário *</label>
+      <input type="time" id="input-booking-time" style="font-size:1.1rem; padding:10px 12px" />
+      <small style="color:var(--text-muted); font-size:0.75rem">Edite para alterar o horário (ex: 07:35, 19:45)</small>
+    </div>
+
+    <div class="form-group">
+      <label>Seu nome *</label>
+      <input type="text" id="input-student-name" placeholder="Ex: Maria Souza"
+        autocomplete="name" inputmode="text" />
+    </div>
+
+    <div class="form-group">
+      <label>E-mail (opcional)</label>
+      <input type="email" id="input-student-email" placeholder="maria@email.com"
+        autocomplete="email" inputmode="email" />
+    </div>
+
+    <div class="modal-actions">
+      <button id="modal-confirm-btn" class="btn btn-success" style="flex:1">
+        Confirmar
+      </button>
+      <button id="modal-cancel-btn" class="btn btn-outline">
+        Cancelar
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     MODAL DO PROFESSOR (bloquear/desbloquear)
+     ============================================================ -->
+<div class="modal-overlay" id="teacher-slot-overlay" role="dialog" aria-modal="true" aria-label="Editar horário do professor">
+  <div class="modal">
+    <h3 id="teacher-slot-title">Bloquear horário</h3>
+    <div class="modal-slot-info" id="teacher-slot-info">&mdash;</div>
+
+    <div class="form-group">
+      <label>Horário *</label>
+      <input type="time" id="teacher-slot-time" style="font-size:1.1rem; padding:10px 12px" />
+      <small style="color:var(--text-muted); font-size:0.75rem">Edite para alterar o horário</small>
+    </div>
+
+    <div class="modal-actions" id="teacher-slot-actions">
+      <!-- Botões dinâmicos inseridos pelo JS -->
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     MODAL DE EDIÇÃO DO COORDENADOR
+     ============================================================ -->
+<div class="modal-overlay" id="coord-edit-overlay" role="dialog" aria-modal="true" aria-label="Editar horário">
+  <div class="modal coord-edit-modal">
+    <h3 id="coord-edit-title">Editar horário</h3>
+    <div class="modal-slot-info" id="coord-edit-info">&mdash;</div>
+
+    <input type="hidden" id="coord-edit-teacher" />
+    <input type="hidden" id="coord-edit-day" />
+
+    <div class="form-group">
+      <label>Horário *</label>
+      <input type="time" id="coord-edit-hour" style="font-size:1.1rem; padding:10px 12px" />
+      <small style="color:var(--text-muted); font-size:0.75rem">Edite para alterar o horário (ex: 07:35, 19:45)</small>
+    </div>
+
+    <div id="coord-edit-student-fields">
+      <div class="form-group">
+        <label>Nome do aluno</label>
+        <input type="text" id="coord-edit-student-name" placeholder="Ex: Maria Souza" />
+      </div>
+      <div class="form-group">
+        <label>E-mail do aluno (opcional)</label>
+        <input type="email" id="coord-edit-student-email" placeholder="maria@email.com" />
+      </div>
+    </div>
+
+    <div class="modal-actions" id="coord-edit-actions">
+      <!-- Botões dinâmicos inseridos pelo JS -->
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     SCRIPTS
+     ============================================================ -->
+<script>
+  // Recupera credenciais do localStorage antes do módulo carregar
+  var sbUrl = localStorage.getItem('sb_url');
+  var sbKey = localStorage.getItem('sb_key');
+  if (sbUrl && sbKey) {
+    window.__SB_URL = sbUrl;
+    window.__SB_KEY = sbKey;
+  }
+
+  // Handler de callback de autenticação (Supabase #access_token=...)
+  (function() {
+    var hash = window.location.hash;
+    if (!hash || hash.length < 2) return;
+    try {
+      var params = new URLSearchParams(hash.substring(1));
+      var accessToken = params.get('access_token');
+      if (!accessToken) return;
+
+      var parts = accessToken.split('.');
+      if (parts.length !== 3) return;
+
+      var payload = JSON.parse(atob(parts[1]));
+      var session = {
+        access_token: accessToken,
+        refresh_token: params.get('refresh_token') || '',
+        expires_at: params.get('expires_at') ? parseInt(params.get('expires_at')) : Math.floor(Date.now() / 1000 + 3600),
+        user: {
+          id: payload.sub,
+          email: payload.email,
+          email_confirmed: true,
+          user_metadata: payload.user_metadata || {},
+          aud: payload.aud,
+          role: payload.role
+        }
+      };
+
+      localStorage.setItem('horivoo_session', JSON.stringify(session));
+      history.replaceState({}, '', window.location.pathname + window.location.search);
+    } catch(e) {
+      console.error('[Auth Callback] Erro:', e);
+    }
+  })();
+</script>
+
+<script type="module" src="/js/app.js"></script>
+
+</body>
+</html>
