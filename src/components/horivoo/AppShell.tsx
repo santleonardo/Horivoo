@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { AuthForm } from "./AuthForm";
 import { TeacherPanel } from "./TeacherPanel";
 import { StudentPanel } from "./StudentPanel";
@@ -8,10 +8,9 @@ import { CoordinatorPanel } from "./CoordinatorPanel";
 import { PWARegister } from "./PWARegister";
 import { useStore } from "@/lib/store";
 import { createClient } from "@/lib/supabase/client";
-import type { Tab, UserProfile } from "@/lib/types";
+import type { Tab } from "@/lib/types";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
 import {
   BookOpen,
   GraduationCap,
@@ -38,11 +37,26 @@ export function AppShell() {
 
   const [initialized, setInitialized] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
-  const supabase = createClient();
+
+  // Memoize Supabase client to avoid infinite re-render loop
+  const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null);
+  if (!supabaseRef.current) {
+    try {
+      supabaseRef.current = createClient();
+    } catch {
+      // Will be handled in useEffect
+    }
+  }
+  const supabase = supabaseRef.current;
 
   // Check auth on mount
   useEffect(() => {
     const checkAuth = async () => {
+      if (!supabase) {
+        setShowAuth(true);
+        setInitialized(true);
+        return;
+      }
       try {
         const {
           data: { user },
@@ -67,11 +81,6 @@ export function AppShell() {
             setTab("coordinator");
           } else {
             // Must be a teacher
-            const teacherRes = await fetch(
-              `/api/teachers?user_id=${user.id}`
-            );
-            // The /api/teachers returns an array, /api/teachers/[id] returns single
-            // Let's try the specific endpoint
             let teacherData = null;
             try {
               const specificRes = await fetch(`/api/teachers/${user.id}`);
@@ -108,7 +117,7 @@ export function AppShell() {
               setTeacherName(teacherData.name);
               setTab("teacher");
             } else {
-              // Teacher profile not found - might need recreation
+              // Teacher profile not found
               setProfile({
                 id: user.id,
                 name: user.user_metadata?.name || user.email?.split("@")[0] || "",
@@ -137,10 +146,10 @@ export function AppShell() {
     };
 
     checkAuth();
-  }, [supabase, setProfile, setIsGuest, setTab, setTeacherId, setTeacherName, setCoordinatorId, setCoordinatorName]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleAuthSuccess = useCallback(() => {
-    // Reload to re-check auth
     window.location.reload();
   }, []);
 
@@ -154,7 +163,7 @@ export function AppShell() {
   const handleLogout = useCallback(async () => {
     if (!confirm("Deseja sair da sua conta?")) return;
     try {
-      await supabase.auth.signOut();
+      await supabase?.auth.signOut();
     } catch {
       // ignore
     }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -18,7 +18,16 @@ interface AuthFormProps {
 export function AuthForm({ onAuthSuccess, onGuestMode }: AuthFormProps) {
   const [loading, setLoading] = useState(false);
   const [showForgot, setShowForgot] = useState(false);
-  const supabase = createClient();
+  // Memoize Supabase client to avoid re-creating on every render
+  const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null);
+  if (!supabaseRef.current) {
+    try {
+      supabaseRef.current = createClient();
+    } catch {
+      // Will show auth error in the UI
+    }
+  }
+  const supabase = supabaseRef.current;
 
   // Login
   const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
