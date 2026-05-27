@@ -21,6 +21,8 @@
   --warning-light: #FEF3CD;
   --booked: #5B5EA6;        /* roxo — agendado */
   --booked-light: #EAE9F7;
+  --coord: #6C5B7B;         /* roxo escuro — coordenador */
+  --coord-light: #EDE7F3;
   --shadow-sm: 0 1px 3px rgba(26,23,20,0.08);
   --shadow-md: 0 4px 16px rgba(26,23,20,0.10);
   --radius: 10px;
@@ -63,6 +65,7 @@ body {
   font-size: 1.35rem;
   color: var(--text);
   letter-spacing: -0.01em;
+  flex-shrink: 0;
 }
 
 .app-header .logo span {
@@ -72,6 +75,8 @@ body {
 .header-nav {
   display: flex;
   gap: 4px;
+  flex-shrink: 1;
+  min-width: 0;
 }
 
 .header-nav button {
@@ -85,6 +90,7 @@ body {
   cursor: pointer;
   color: var(--text-muted);
   transition: all var(--transition);
+  white-space: nowrap;
 }
 
 .header-nav button:hover {
@@ -97,12 +103,26 @@ body {
   color: var(--surface);
 }
 
+/* Coordenador tab */
+.header-nav button[data-tab="coordinator"] {
+  color: var(--coord);
+}
+.header-nav button[data-tab="coordinator"]:hover {
+  background: var(--coord-light);
+  color: var(--coord);
+}
+.header-nav button[data-tab="coordinator"].active {
+  background: var(--coord);
+  color: white;
+}
+
 /* --- Header: área do usuário --- */
 .header-user {
   display: flex;
   align-items: center;
   gap: 4px;
   flex-shrink: 0;
+  min-width: 0;
 }
 
 .main-content {
@@ -316,6 +336,11 @@ body {
 
 .btn-outline:hover { background: var(--surface-2); }
 
+.btn-sm {
+  padding: 4px 10px;
+  font-size: 0.78rem;
+}
+
 .btn-full { width: 100%; justify-content: center; }
 
 /* --- Cabeçalho da seção --- */
@@ -481,7 +506,7 @@ body {
   box-shadow: var(--shadow-sm);
 }
 
-/* Professor: bloqueado por ele */
+/* Professor: bloqueado */
 .slot.blocked {
   background: var(--danger-light);
   color: var(--danger);
@@ -499,7 +524,13 @@ body {
   background: var(--booked-light);
   color: var(--booked);
   border-color: #cccde8;
-  cursor: default;
+  cursor: pointer;
+}
+
+.slot.booked:hover {
+  background: #d5d4e9;
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
 }
 
 /* Aluno: disponível */
@@ -585,6 +616,8 @@ body {
   box-shadow: var(--shadow-md);
   transform: translateY(12px);
   transition: transform var(--transition);
+  max-height: 90vh;
+  overflow-y: auto;
 }
 
 .modal-overlay.open .modal {
@@ -618,6 +651,176 @@ body {
   display: flex;
   gap: 10px;
   margin-top: 20px;
+  flex-wrap: wrap;
+}
+
+/* ============================================================
+   PAINEL DO COORDENADOR
+   ============================================================ */
+
+/* Barra de pesquisa */
+.coord-search-bar {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px 24px;
+  margin-bottom: 24px;
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.coord-search-input-wrap {
+  flex: 1;
+  min-width: 200px;
+  position: relative;
+}
+
+.coord-search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.9rem;
+  pointer-events: none;
+}
+
+.coord-search-input-wrap input {
+  width: 100%;
+  padding: 10px 14px 10px 36px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-body);
+  font-size: 0.9rem;
+  background: var(--bg);
+  color: var(--text);
+  transition: border-color var(--transition);
+}
+
+.coord-search-input-wrap input:focus {
+  outline: none;
+  border-color: var(--coord);
+}
+
+.coord-filter-group {
+  display: flex;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.coord-filter-btn {
+  padding: 8px 14px;
+  border: none;
+  background: var(--surface-2);
+  font-family: var(--font-body);
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--transition);
+  white-space: nowrap;
+}
+
+.coord-filter-btn:not(:last-child) {
+  border-right: 1px solid var(--border);
+}
+
+.coord-filter-btn.active {
+  background: var(--coord);
+  color: white;
+}
+
+.coord-filter-btn:hover:not(.active) {
+  background: var(--border);
+}
+
+/* Seção de professor (visão todos) */
+.coord-teacher-section {
+  margin-bottom: 32px;
+}
+
+.coord-teacher-label {
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+  color: var(--coord);
+  margin-bottom: 12px;
+  padding-left: 4px;
+}
+
+/* Tabela detalhada */
+.coord-table-wrap {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow-x: auto;
+  margin-bottom: 32px;
+}
+
+.coord-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.coord-table th {
+  background: var(--surface-2);
+  padding: 12px 16px;
+  text-align: left;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.coord-table td {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--surface-2);
+  vertical-align: middle;
+}
+
+.coord-table tbody tr:hover {
+  background: var(--surface-2);
+}
+
+.coord-table .coord-actions {
+  white-space: nowrap;
+  display: flex;
+  gap: 6px;
+}
+
+.badge-booked {
+  background: var(--booked-light);
+  color: var(--booked);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+/* Modal do coordenador */
+.coord-edit-modal {
+  max-width: 480px;
+}
+
+.coord-edit-modal h3 {
+  color: var(--coord);
+}
+
+#coord-edit-overlay .modal-slot-info {
+  background: var(--coord-light);
+  border-color: #d1c4e9;
+  color: var(--coord);
 }
 
 /* --- Toast / Notificação --- */
@@ -748,17 +951,27 @@ body {
 }
 
 @media (max-width: 640px) {
-  .app-header { padding: 0 16px; }
-  .app-header .logo { font-size: 1.1rem; }
+  .app-header {
+    padding: 0 12px;
+    gap: 4px;
+  }
+  .app-header .logo { font-size: 1.1rem; flex-shrink: 0; }
   .main-content { padding: 20px 16px 48px; }
 
   .week-grid {
     grid-template-columns: repeat(2, 1fr);
   }
 
+  .header-nav {
+    flex-shrink: 1;
+    min-width: 0;
+    gap: 2px;
+  }
+
   .header-nav button {
-    padding: 6px 10px;
-    font-size: 0.8rem;
+    padding: 6px 8px;
+    font-size: 0.72rem;
+    white-space: nowrap;
   }
 
   .section-header h2 { font-size: 1.4rem; }
@@ -771,14 +984,52 @@ body {
 
   .legend { gap: 12px; }
 
+  .header-user {
+    flex-shrink: 0;
+    min-width: 0;
+  }
   .header-user #logout-btn { font-size: 0.7rem; padding: 4px 10px; }
-  .header-user #header-professor { font-size: 0.75rem; }
+  .header-user #header-professor {
+    font-size: 0.7rem;
+    max-width: 80px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: inline-block;
+  }
   .header-user #header-guest { font-size: 0.7rem; }
+  .header-user #login-from-header-btn { font-size: 0.7rem; padding: 4px 10px; }
+
+  /* Coordenador mobile */
+  .coord-search-bar {
+    padding: 16px;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .coord-filter-group {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .coord-table th,
+  .coord-table td {
+    padding: 8px 10px;
+    font-size: 0.78rem;
+  }
 }
 
 @media (max-width: 400px) {
   .week-grid {
     grid-template-columns: 1fr 1fr;
+  }
+  .header-nav button {
+    padding: 5px 6px;
+    font-size: 0.68rem;
+  }
+  .app-header .logo { font-size: 0.95rem; }
+  .header-user #header-professor {
+    max-width: 60px;
   }
 }
 
