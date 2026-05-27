@@ -51,6 +51,15 @@ export async function getTeacherByUserId(userId) {
   return result.length > 0 ? result[0] : null;
 }
 
+/** Cria perfil de professor vinculado ao auth user */
+export async function createTeacherProfile(userId, name, email) {
+  const result = await req('teachers', {
+    method: 'POST',
+    body: JSON.stringify({ user_id: userId, name, email })
+  });
+  return Array.isArray(result) ? result[0] : result;
+}
+
 // ================================================================
 // HORÁRIOS BLOQUEADOS (pelo professor / coordenador)
 // ================================================================
@@ -111,6 +120,16 @@ export async function updateBooking(bookingId, data) {
 /** Cancela um agendamento */
 export async function cancelBooking(bookingId) {
   return req(`bookings?id=eq.${bookingId}`, { method: 'DELETE' });
+}
+
+// ================================================================
+// COORDENADORES
+// ================================================================
+
+/** Busca coordenador pelo user_id (auth.uid) */
+export async function getCoordinatorByUserId(userId) {
+  const result = await req(`coordinators?user_id=eq.${userId}&select=id,name,email,user_id`);
+  return result.length > 0 ? result[0] : null;
 }
 
 // ================================================================

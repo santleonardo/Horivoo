@@ -9,7 +9,7 @@ import { initStudentPanel }  from './student.js';
 import { initCoordinatorPanel } from './coordinator.js';
 import { registerSW, setupInstallPrompt, setupNetworkStatus, getInitialTab, isStandalone } from './pwa.js';
 import { signIn, signUp, signOut, getSession, isLoggedIn, getUser, forgotPassword } from './auth.js';
-import { getTeacherByUserId } from './api.js';
+import { getTeacherByUserId, getCoordinatorByUserId, createTeacherProfile } from './api.js';
 import { toast } from './ui.js';
 
 // ================================================================
@@ -355,15 +355,35 @@ document.addEventListener('DOMContentLoaded', async () => {
     const userId = session.user?.id;
     if (userId) {
       try {
-        const teacher = await getTeacherByUserId(userId);
-        if (!teacher) {
-          toast('Perfil de professor não encontrado. Tente fazer login novamente.', 'error');
-          await signOut();
-          showLoginScreen();
-          return;
+        // Verificar se é coordenador primeiro
+        const coordinator = await getCoordinatorByUserId(userId);
+        if (coordinator) {
+          window.__COORDINATOR_ID = coordinator.id;
+          window.__COORDINATOR_NAME = coordinator.name;
+          window.__IS_COORDINATOR = true;
+        } else {
+          // Buscar perfil de professor
+          let teacher = await getTeacherByUserId(userId);
+          if (!teacher) {
+            // Perfil não encontrado — recriar automaticamente
+            const userName = session.user?.user_metadata?.name || session.user?.email?.split('@')[0] || 'Professor';
+            const userEmail = session.user?.email || '';
+            console.log('[App] Perfil de professor não encontrado, recriando...');
+            try {
+              teacher = await createTeacherProfile(userId, userName, userEmail);
+              toast('Perfil recriado com sucesso!', 'success');
+            } catch (createErr) {
+              console.error('[App] Erro ao recriar perfil:', createErr);
+              toast('Erro ao recriar perfil. Tente fazer login novamente.', 'error');
+              await signOut();
+              showLoginScreen();
+              return;
+            }
+          }
+          window.__TEACHER_ID = teacher.id;
+          window.__TEACHER_NAME = teacher.name;
+          window.__IS_COORDINATOR = false;
         }
-        window.__TEACHER_ID = teacher.id;
-        window.__TEACHER_NAME = teacher.name;
       } catch (err) {
         console.error('Erro ao buscar perfil:', err);
         toast('Erro ao carregar perfil. Tente novamente.', 'error');
@@ -373,9 +393,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     showApp();
     updateHeader();
 
-    // Verificar se é coordenador pelo user_metadata.role
-    const userRole = session.user?.user_metadata?.role;
-    if (userRole === 'coordinator') {
+    // Direcionar para a aba correta
+    if (window.__IS_COORDINATOR) {
       switchTab('coordinator');
     } else {
       switchTab('teacher');
