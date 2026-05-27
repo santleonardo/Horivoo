@@ -290,7 +290,7 @@ export function renderWeekGrid(containerId, blocked, booked, mode, callbacks = {
               data-hour="${hour}"
               data-status="${isBooked ? 'booked' : (isBlocked ? 'blocked' : 'available')}"
               data-id="${slotId || ''}"
-              data-teacher-id="${currentTeacherId || ''}"
+              data-teacher-id="${callbacks.teacherId || ''}"
               data-teacher-name="${callbacks.teacherName || ''}"
               title="${title}"
             >${label}</button>`;

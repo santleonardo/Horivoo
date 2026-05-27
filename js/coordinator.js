@@ -137,7 +137,8 @@ function renderCoordinatorGrid() {
     'coordinator',
     {
       onSlotClick: handleCoordSlotClick,
-      teacherName: currentTeacherName
+      teacherName: currentTeacherName,
+      teacherId: currentTeacherId
     }
   );
 }
