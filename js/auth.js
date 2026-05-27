@@ -1,14 +1,20 @@
 /**
  * auth.js — Autenticação via Supabase Auth REST API
- * Signup, signin, signout, gerenciamento de sessão
+ *
+ * FIXES aplicados:
+ * - Token refresh implementado (antes o usuário era deslogado após 1h sem aviso)
+ * - Mensagens de erro em português para todos os casos
+ * - Proteção contra race condition no refresh
  */
 
 import { SUPABASE_URL as CFG_URL, SUPABASE_KEY as CFG_KEY } from './config.js';
 
-const BASE_URL  = (window.__SB_URL || CFG_URL) + '/auth/v1';
-const API_KEY   = window.__SB_KEY || CFG_KEY;
-
+const BASE_URL = (window.__SB_URL || CFG_URL) + '/auth/v1';
+const API_KEY  = window.__SB_KEY || CFG_KEY;
 const AUTH_KEY = 'horivoo_session';
+
+// Mutex para evitar múltiplos refreshes simultâneos
+let _refreshPromise = null;
 
 // ================================================================
 // HELPERS
@@ -21,8 +27,7 @@ async function authReq(endpoint, options = {}) {
     'apikey': API_KEY,
   };
 
-  // Se já tem sessão, incluir o token de acesso
-  const session = getSession();
+  const session = getRawSession();
   if (session?.access_token && !options.noAuth) {
     headers['Authorization'] = `Bearer ${session.access_token}`;
   }
@@ -39,16 +44,9 @@ async function authReq(endpoint, options = {}) {
 }
 
 // ================================================================
-// SIGN UP — Criar conta de professor
+// SIGN UP
 // ================================================================
 
-/**
- * Cria uma nova conta de professor
- * @param {string} email
- * @param {string} password - mínimo 6 caracteres
- * @param {string} name - nome do professor
- * @returns {object} user + session
- */
 export async function signUp(email, password, name) {
   const data = await authReq('/signup', {
     method: 'POST',
@@ -56,33 +54,21 @@ export async function signUp(email, password, name) {
     body: JSON.stringify({
       email: email.trim().toLowerCase(),
       password,
-      data: { name: name.trim() }  // metadata que o trigger usa
+      data: { name: name.trim() }
     })
   });
 
-  // Se retornou sessão (email confirmation desativado), salvar
   if (data.session) {
-    saveSession({
-      access_token: data.session.access_token,
-      refresh_token: data.session.refresh_token,
-      expires_at: data.session.expires_at,
-      user: data.user
-    });
+    saveSession(buildSession(data.session, data.user));
   }
 
   return data;
 }
 
 // ================================================================
-// SIGN IN — Login de professor
+// SIGN IN
 // ================================================================
 
-/**
- * Faz login com email e senha
- * @param {string} email
- * @param {string} password
- * @returns {object} session
- */
 export async function signIn(email, password) {
   const data = await authReq('/token?grant_type=password', {
     method: 'POST',
@@ -94,115 +80,141 @@ export async function signIn(email, password) {
   });
 
   if (data.access_token) {
-    saveSession({
-      access_token: data.access_token,
-      refresh_token: data.refresh_token,
-      expires_at: data.expires_at,
-      user: data.user
-    });
+    saveSession(buildSession(data, data.user));
   }
 
   return data;
 }
 
 // ================================================================
-// SIGN OUT — Logout
+// SIGN OUT
 // ================================================================
 
 export async function signOut() {
   try {
     await authReq('/logout', { method: 'POST' });
   } catch {
-    // Ignora erro de logout (token pode estar expirado)
+    // Token pode estar expirado — ignora e limpa local mesmo assim
   }
   clearSession();
 }
 
 // ================================================================
-// FORGOT PASSWORD — Recuperar senha
+// FORGOT PASSWORD
 // ================================================================
 
-/**
- * Envia e-mail de recuperação de senha
- * @param {string} email
- */
 export async function forgotPassword(email) {
   await authReq('/recover', {
     method: 'POST',
     noAuth: true,
-    body: JSON.stringify({
-      email: email.trim().toLowerCase()
-    })
+    body: JSON.stringify({ email: email.trim().toLowerCase() })
   });
 }
 
 // ================================================================
-// SESSION — Gerenciamento de sessão
+// TOKEN REFRESH
+// FIX: antes retornava null silenciosamente; agora tenta renovar o token
 // ================================================================
 
-/**
- * Salva sessão no localStorage
- */
+async function refreshToken(refreshTkn) {
+  const data = await authReq('/token?grant_type=refresh_token', {
+    method: 'POST',
+    noAuth: true,
+    body: JSON.stringify({ refresh_token: refreshTkn })
+  });
+
+  if (data.access_token) {
+    const session = buildSession(data, data.user);
+    saveSession(session);
+    return session;
+  }
+
+  throw new Error('Refresh falhou.');
+}
+
+// ================================================================
+// SESSION MANAGEMENT
+// ================================================================
+
+function buildSession(tokenData, user) {
+  return {
+    access_token:  tokenData.access_token,
+    refresh_token: tokenData.refresh_token,
+    // expires_at pode vir como número (Unix timestamp) ou ser calculado
+    expires_at: tokenData.expires_at
+      ? Number(tokenData.expires_at)
+      : Math.floor(Date.now() / 1000) + (tokenData.expires_in || 3600),
+    user
+  };
+}
+
 export function saveSession(session) {
   localStorage.setItem(AUTH_KEY, JSON.stringify(session));
 }
 
-/**
- * Recupera sessão do localStorage
- * @returns {object|null}
- */
-export function getSession() {
+function getRawSession() {
   try {
     const raw = localStorage.getItem(AUTH_KEY);
-    if (!raw) return null;
-    const session = JSON.parse(raw);
-
-    // Verificar se o token expirou
-    if (session.expires_at && Date.now() / 1000 > session.expires_at) {
-      // Token expirado — tentar refresh
-      return null; // Por simplicidade, forçar novo login
-    }
-
-    return session;
+    return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
   }
 }
 
 /**
- * Remove sessão
+ * Retorna a sessão, fazendo refresh automático se necessário.
+ * FIX: antes retornava null quando expirava; agora tenta refresh_token primeiro.
  */
+export async function getSession() {
+  const session = getRawSession();
+  if (!session) return null;
+
+  const nowSecs = Math.floor(Date.now() / 1000);
+  const bufferSecs = 60; // Renovar 60s antes de expirar
+
+  if (session.expires_at && nowSecs >= session.expires_at - bufferSecs) {
+    if (!session.refresh_token) {
+      clearSession();
+      return null;
+    }
+
+    // Evita múltiplos refreshes em paralelo
+    if (!_refreshPromise) {
+      _refreshPromise = refreshToken(session.refresh_token)
+        .catch(() => { clearSession(); return null; })
+        .finally(() => { _refreshPromise = null; });
+    }
+
+    return _refreshPromise;
+  }
+
+  return session;
+}
+
+/** Versão síncrona para acesso rápido (não faz refresh) */
+export function getSessionSync() {
+  return getRawSession();
+}
+
 export function clearSession() {
   localStorage.removeItem(AUTH_KEY);
 }
 
-/**
- * Verifica se há uma sessão ativa
- */
 export function isLoggedIn() {
-  return getSession() !== null;
+  const s = getRawSession();
+  if (!s) return false;
+  // Considera logado mesmo com token próximo de expirar (o refresh cuida)
+  return true;
 }
 
-/**
- * Retorna o usuário logado
- */
 export function getUser() {
-  const session = getSession();
-  return session?.user || null;
+  return getRawSession()?.user || null;
 }
 
-/**
- * Retorna o access_token do usuário logado (ou null)
- */
 export function getAccessToken() {
-  const session = getSession();
-  return session?.access_token || null;
+  return getRawSession()?.access_token || null;
 }
 
-/**
- * Retorna o user_id (auth.uid) do usuário logado
- */
 export function getUserId() {
-  const user = getUser();
-  return user?.id || null;
+  return getUser()?.id || null;
 }

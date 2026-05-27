@@ -1,11 +1,15 @@
 /**
  * app.js — Ponto de entrada da aplicação
- * Controla autenticação, abas (Professor / Aluno / Coordenador) e inicialização.
+ *
+ * FIXES aplicados:
+ * - getSession() agora é await (suporta token refresh automático)
+ * - Credenciais injetadas antes de qualquer import usar window.__SB_*
+ * - Roteamento de abas sem duplicação de lógica
  */
 
 import { SUPABASE_URL, SUPABASE_KEY } from './config.js';
-import { initTeacherPanel } from './teacher.js';
-import { initStudentPanel }  from './student.js';
+import { initTeacherPanel }     from './teacher.js';
+import { initStudentPanel }     from './student.js';
 import { initCoordinatorPanel } from './coordinator.js';
 import { registerSW, setupInstallPrompt, setupNetworkStatus, getInitialTab, isStandalone } from './pwa.js';
 import { signIn, signUp, signOut, getSession, isLoggedIn, getUser, forgotPassword } from './auth.js';
@@ -27,7 +31,7 @@ function isConfigured() {
 }
 
 // ================================================================
-// HANDLER DE CALLBACK DE AUTENTICAÇÃO (#access_token=...)
+// CALLBACK DE AUTENTICAÇÃO (link de e-mail → #access_token=...)
 // ================================================================
 
 function handleAuthCallback() {
@@ -35,7 +39,7 @@ function handleAuthCallback() {
   if (!hash || hash.length < 2) return false;
 
   const params = new URLSearchParams(hash.substring(1));
-  const accessToken  = params.get('access_token');
+  const accessToken = params.get('access_token');
   if (!accessToken) return false;
 
   try {
@@ -44,9 +48,11 @@ function handleAuthCallback() {
     const payload = JSON.parse(atob(parts[1]));
 
     const session = {
-      access_token: accessToken,
+      access_token:  accessToken,
       refresh_token: params.get('refresh_token') || '',
-      expires_at: params.get('expires_at') ? parseInt(params.get('expires_at')) : Math.floor(Date.now() / 1000 + 3600),
+      expires_at: params.get('expires_at')
+        ? parseInt(params.get('expires_at'))
+        : Math.floor(Date.now() / 1000 + 3600),
       user: {
         id: payload.sub,
         email: payload.email,
@@ -59,10 +65,9 @@ function handleAuthCallback() {
 
     localStorage.setItem('horivoo_session', JSON.stringify(session));
     history.replaceState({}, '', window.location.pathname + window.location.search);
-    console.log('[Auth Callback] Sessão salva. Tipo:', params.get('type'));
     return true;
   } catch (err) {
-    console.error('[Auth Callback] Erro:', err);
+    console.error('[Auth Callback]', err);
     return false;
   }
 }
@@ -71,19 +76,17 @@ function handleAuthCallback() {
 // ROTEAMENTO DE ABAS
 // ================================================================
 
-let currentTab  = 'teacher';
 let initialized = { teacher: false, student: false, coordinator: false };
 
 function switchTab(tab) {
-  currentTab = tab;
-
   document.querySelectorAll('.header-nav button').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.tab === tab);
   });
 
-  document.getElementById('teacher-panel').style.display     = tab === 'teacher' ? '' : 'none';
-  document.getElementById('student-panel').style.display     = tab === 'student' ? '' : 'none';
-  document.getElementById('coordinator-panel').style.display = tab === 'coordinator' ? '' : 'none';
+  ['teacher', 'student', 'coordinator'].forEach(t => {
+    const el = document.getElementById(`${t}-panel`);
+    if (el) el.style.display = t === tab ? '' : 'none';
+  });
 
   // Atualiza URL sem reload (deep link PWA)
   const url = new URL(location.href);
@@ -94,12 +97,10 @@ function switchTab(tab) {
     initialized.teacher = true;
     initTeacherPanel();
   }
-
   if (tab === 'student' && !initialized.student) {
     initialized.student = true;
     initStudentPanel();
   }
-
   if (tab === 'coordinator' && !initialized.coordinator) {
     initialized.coordinator = true;
     initCoordinatorPanel();
@@ -107,7 +108,7 @@ function switchTab(tab) {
 }
 
 // ================================================================
-// TELAS — mostrar / ocultar
+// TELAS
 // ================================================================
 
 function showScreen(screenId) {
@@ -115,147 +116,145 @@ function showScreen(screenId) {
     const el = document.getElementById(id);
     if (el) el.style.display = id === screenId ? '' : 'none';
   });
-
   const navEl = document.querySelector('.header-nav');
-  if (navEl) {
-    navEl.style.display = screenId === 'app-main' ? '' : 'none';
-  }
+  if (navEl) navEl.style.display = screenId === 'app-main' ? '' : 'none';
 }
 
-function showConfigScreen() { showScreen('config-screen'); }
-function showLoginScreen()  { showScreen('login-screen'); }
-function showApp()          { showScreen('app-main'); }
-
 // ================================================================
-// AUTENTICAÇÃO
+// UI DE AUTENTICAÇÃO
 // ================================================================
 
 function setupAuthUI() {
-  const loginTabs = document.querySelectorAll('#login-screen .auth-tab');
-  const loginForm = document.getElementById('login-form');
+  const loginTabs  = document.querySelectorAll('#login-screen .auth-tab');
+  const loginForm  = document.getElementById('login-form');
   const signupForm = document.getElementById('signup-form');
+  const forgotForm = document.getElementById('forgot-form');
 
   loginTabs.forEach(tab => {
     tab.addEventListener('click', () => {
       loginTabs.forEach(t => t.classList.toggle('active', t === tab));
-      loginForm.style.display  = tab.dataset.auth === 'login'  ? '' : 'none';
-      signupForm.style.display = tab.dataset.auth === 'signup' ? '' : 'none';
+      if (loginForm)  loginForm.style.display  = tab.dataset.auth === 'login'  ? '' : 'none';
+      if (signupForm) signupForm.style.display = tab.dataset.auth === 'signup' ? '' : 'none';
+      if (forgotForm) forgotForm.style.display = 'none';
     });
   });
 
-  // Login
-  document.getElementById('login-btn')?.addEventListener('click', async () => {
-    const email    = document.getElementById('login-email').value.trim();
-    const password = document.getElementById('login-password').value;
+  // Helpers de botão
+  function setBtnState(id, loading, loadingText, defaultText) {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    btn.disabled = loading;
+    btn.textContent = loading ? loadingText : defaultText;
+  }
 
+  // ── LOGIN ──
+  document.getElementById('login-btn')?.addEventListener('click', async () => {
+    const email    = document.getElementById('login-email')?.value.trim();
+    const password = document.getElementById('login-password')?.value;
     if (!email || !password) { toast('Preencha e-mail e senha.', 'error'); return; }
 
+    setBtnState('login-btn', true, 'Entrando...', 'Entrar');
     try {
-      document.getElementById('login-btn').disabled = true;
-      document.getElementById('login-btn').textContent = 'Entrando...';
       await signIn(email, password);
-      toast('Login realizado com sucesso!', 'success');
+      toast('Login realizado!', 'success');
       setTimeout(() => location.reload(), 300);
     } catch (err) {
-      const msg = err.message.includes('Invalid login credentials') ? 'E-mail ou senha incorretos.'
-        : err.message.includes('Email not confirmed') ? 'Confirme seu e-mail antes de entrar.'
-        : err.message;
+      const map = {
+        'Invalid login credentials': 'E-mail ou senha incorretos.',
+        'Email not confirmed': 'Confirme seu e-mail antes de entrar.',
+      };
+      const msg = Object.entries(map).find(([k]) => err.message.includes(k))?.[1] || err.message;
       toast(msg, 'error');
     } finally {
-      document.getElementById('login-btn').disabled = false;
-      document.getElementById('login-btn').textContent = 'Entrar';
+      setBtnState('login-btn', false, '', 'Entrar');
     }
   });
 
-  // Signup
+  // ── SIGNUP ──
   document.getElementById('signup-btn')?.addEventListener('click', async () => {
-    const name     = document.getElementById('signup-name').value.trim();
-    const email    = document.getElementById('signup-email').value.trim();
-    const password = document.getElementById('signup-password').value;
-    const confirm  = document.getElementById('signup-confirm').value;
+    const name     = document.getElementById('signup-name')?.value.trim();
+    const email    = document.getElementById('signup-email')?.value.trim();
+    const password = document.getElementById('signup-password')?.value;
+    const confirm  = document.getElementById('signup-confirm')?.value;
 
     if (!name || !email || !password) { toast('Preencha todos os campos.', 'error'); return; }
-    if (password.length < 6) { toast('A senha deve ter pelo menos 6 caracteres.', 'error'); return; }
-    if (password !== confirm) { toast('As senhas não coincidem.', 'error'); return; }
+    if (password.length < 6)          { toast('Senha deve ter ao menos 6 caracteres.', 'error'); return; }
+    if (password !== confirm)          { toast('As senhas não coincidem.', 'error'); return; }
 
+    setBtnState('signup-btn', true, 'Criando conta...', 'Criar conta');
     try {
-      document.getElementById('signup-btn').disabled = true;
-      document.getElementById('signup-btn').textContent = 'Criando conta...';
       const result = await signUp(email, password, name);
       if (result.session) {
-        toast('Conta criada com sucesso!', 'success');
+        toast('Conta criada!', 'success');
         setTimeout(() => location.reload(), 300);
       } else {
         toast('Conta criada! Verifique seu e-mail para confirmar.', 'success', 6000);
         loginTabs[0]?.click();
       }
     } catch (err) {
-      const msg = err.message.includes('already registered') ? 'Este e-mail já está cadastrado.' : err.message;
+      const msg = err.message.includes('already registered')
+        ? 'Este e-mail já está cadastrado.'
+        : err.message;
       toast(msg, 'error');
     } finally {
-      document.getElementById('signup-btn').disabled = false;
-      document.getElementById('signup-btn').textContent = 'Criar conta';
+      setBtnState('signup-btn', false, '', 'Criar conta');
     }
   });
 
-  // Esqueceu a senha
+  // ── ESQUECI A SENHA ──
   document.getElementById('forgot-btn')?.addEventListener('click', () => {
-    loginForm.style.display = 'none';
-    signupForm.style.display = 'none';
-    document.getElementById('forgot-form').style.display = '';
+    if (loginForm)  loginForm.style.display  = 'none';
+    if (signupForm) signupForm.style.display = 'none';
+    if (forgotForm) forgotForm.style.display = '';
     loginTabs.forEach(t => t.style.display = 'none');
   });
 
   document.getElementById('back-to-login-btn')?.addEventListener('click', () => {
-    document.getElementById('forgot-form').style.display = 'none';
-    loginForm.style.display = '';
+    if (forgotForm) forgotForm.style.display = 'none';
+    if (loginForm)  loginForm.style.display  = '';
     loginTabs.forEach(t => t.style.display = '');
     loginTabs[0]?.click();
   });
 
   document.getElementById('forgot-submit-btn')?.addEventListener('click', async () => {
-    const email = document.getElementById('forgot-email').value.trim();
+    const email = document.getElementById('forgot-email')?.value.trim();
     if (!email) { toast('Informe seu e-mail.', 'error'); return; }
+
+    setBtnState('forgot-submit-btn', true, 'Enviando...', 'Enviar link');
     try {
-      document.getElementById('forgot-submit-btn').disabled = true;
-      document.getElementById('forgot-submit-btn').textContent = 'Enviando...';
       await forgotPassword(email);
-      toast('E-mail de recuperação enviado!', 'success', 5000);
-      document.getElementById('forgot-form').style.display = 'none';
-      loginForm.style.display = '';
-      loginTabs.forEach(t => t.style.display = '');
-      loginTabs[0]?.click();
-    } catch { toast('Erro ao enviar e-mail.', 'error'); }
-    finally {
-      document.getElementById('forgot-submit-btn').disabled = false;
-      document.getElementById('forgot-submit-btn').textContent = 'Enviar link de recuperação';
+      toast('Link de recuperação enviado!', 'success', 5000);
+      document.getElementById('back-to-login-btn')?.click();
+    } catch {
+      toast('Erro ao enviar e-mail. Tente novamente.', 'error');
+    } finally {
+      setBtnState('forgot-submit-btn', false, '', 'Enviar link');
     }
   });
 
-  // Continuar como aluno
+  // ── CONTINUAR COMO ALUNO (sem login) ──
   document.getElementById('guest-btn')?.addEventListener('click', () => {
     localStorage.setItem('horivoo_guest', 'true');
-    showApp();
+    showScreen('app-main');
     updateHeader();
     switchTab('student');
   });
 
-  // Entrar a partir do header
   document.getElementById('login-from-header-btn')?.addEventListener('click', () => {
     localStorage.removeItem('horivoo_guest');
-    showLoginScreen();
+    showScreen('login-screen');
   });
 
-  // Logout
+  // ── LOGOUT ──
   document.getElementById('logout-btn')?.addEventListener('click', async () => {
     if (!confirm('Deseja sair da sua conta?')) return;
     await signOut();
     localStorage.removeItem('horivoo_guest');
-    toast('Você saiu da conta.', 'info');
+    toast('Você saiu.', 'info');
     setTimeout(() => location.reload(), 300);
   });
 
-  // Enter key
+  // Enter nos campos
   ['login-email', 'login-password'].forEach(id => {
     document.getElementById(id)?.addEventListener('keydown', e => {
       if (e.key === 'Enter') document.getElementById('login-btn')?.click();
@@ -273,31 +272,38 @@ function setupAuthUI() {
 // ================================================================
 
 function updateHeader() {
-  const user = getUser();
+  const user    = getUser();
   const isGuest = localStorage.getItem('horivoo_guest') === 'true';
-  const guestEl = document.getElementById('header-guest');
-  const loginBtn = document.getElementById('login-from-header-btn');
-  const profEl  = document.getElementById('header-professor');
-  const logoutBtn = document.getElementById('logout-btn');
+
+  const guestEl    = document.getElementById('header-guest');
+  const loginBtn   = document.getElementById('login-from-header-btn');
+  const profEl     = document.getElementById('header-professor');
+  const logoutBtn  = document.getElementById('logout-btn');
+  const coordBadge = document.getElementById('header-coord-badge');
 
   if (user) {
-    if (guestEl) guestEl.style.display = 'none';
-    if (loginBtn) loginBtn.style.display = 'none';
+    guestEl?.style  && (guestEl.style.display  = 'none');
+    loginBtn?.style && (loginBtn.style.display  = 'none');
     if (profEl) {
       profEl.style.display = '';
-      profEl.textContent = user.user_metadata?.name || user.email;
+      profEl.textContent   = user.user_metadata?.name || user.email;
     }
-    if (logoutBtn) logoutBtn.style.display = '';
+    logoutBtn?.style && (logoutBtn.style.display = '');
+
+    if (coordBadge) {
+      coordBadge.style.display = window.__IS_COORDINATOR ? '' : 'none';
+    }
   } else if (isGuest) {
-    if (guestEl) guestEl.style.display = '';
-    if (loginBtn) loginBtn.style.display = '';
-    if (profEl)  profEl.style.display = 'none';
-    if (logoutBtn) logoutBtn.style.display = 'none';
+    guestEl?.style  && (guestEl.style.display  = '');
+    loginBtn?.style && (loginBtn.style.display  = '');
+    profEl?.style   && (profEl.style.display    = 'none');
+    logoutBtn?.style && (logoutBtn.style.display = 'none');
+    coordBadge?.style && (coordBadge.style.display = 'none');
   } else {
-    if (guestEl) guestEl.style.display = 'none';
-    if (loginBtn) loginBtn.style.display = 'none';
-    if (profEl)  profEl.style.display = 'none';
-    if (logoutBtn) logoutBtn.style.display = 'none';
+    ['guestEl','loginBtn','profEl','logoutBtn','coordBadge'].forEach(name => {
+      const el = { guestEl, loginBtn, profEl, logoutBtn, coordBadge }[name];
+      if (el?.style) el.style.display = 'none';
+    });
   }
 }
 
@@ -307,25 +313,8 @@ function updateHeader() {
 
 document.addEventListener('DOMContentLoaded', async () => {
 
-  // Callback de autenticação
-  const wasCallback = handleAuthCallback();
-  if (wasCallback) toast('E-mail confirmado com sucesso!', 'success', 4000);
-
-  await registerSW();
-  setupNetworkStatus();
-  setupInstallPrompt();
-  window.__toast = toast;
-
-  // Config Supabase
-  document.getElementById('save-config-btn')?.addEventListener('click', () => {
-    const url = document.getElementById('config-url').value.trim();
-    const key = document.getElementById('config-key').value.trim();
-    if (!url || !key) { alert('Preencha URL e API Key.'); return; }
-    localStorage.setItem('sb_url', url);
-    localStorage.setItem('sb_key', key);
-    location.reload();
-  });
-
+  // FIX: injetar override ANTES de qualquer coisa que use as credenciais
+  // (o script inline do HTML já faz isso, mas garantimos aqui também)
   const savedUrl = localStorage.getItem('sb_url');
   const savedKey = localStorage.getItem('sb_key');
   if (savedUrl && savedKey) {
@@ -333,79 +322,88 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.__SB_KEY = savedKey;
   }
 
-  if (!isConfigured()) { showConfigScreen(); return; }
+  // Callback de link de e-mail (confirmação / reset de senha)
+  const wasCallback = handleAuthCallback();
+  if (wasCallback) toast('E-mail confirmado com sucesso!', 'success', 4000);
+
+  // PWA
+  await registerSW();
+  setupNetworkStatus();
+  setupInstallPrompt();
+  window.__toast = toast;
+
+  // Salvar config Supabase (tela de configuração)
+  document.getElementById('save-config-btn')?.addEventListener('click', () => {
+    const url = document.getElementById('config-url')?.value.trim();
+    const key = document.getElementById('config-key')?.value.trim();
+    if (!url || !key) { alert('Preencha URL e API Key.'); return; }
+    localStorage.setItem('sb_url', url);
+    localStorage.setItem('sb_key', key);
+    location.reload();
+  });
+
+  if (!isConfigured()) {
+    showScreen('config-screen');
+    return;
+  }
 
   setupAuthUI();
 
-  // Bind navegação do header
   document.querySelectorAll('.header-nav button[data-tab]').forEach(btn => {
     btn.addEventListener('click', () => {
       const appMain = document.getElementById('app-main');
-      if (appMain && appMain.style.display !== 'none') {
-        switchTab(btn.dataset.tab);
-      }
+      if (appMain?.style.display !== 'none') switchTab(btn.dataset.tab);
     });
   });
 
-  // Verificar sessão
-  const session = getSession();
+  // Verificar sessão com suporte a refresh automático
+  const session = await getSession();  // FIX: await para suportar refresh
   const isGuest = localStorage.getItem('horivoo_guest') === 'true';
 
   if (session) {
     const userId = session.user?.id;
     if (userId) {
       try {
-        // Verificar se é coordenador primeiro
         const coordinator = await getCoordinatorByUserId(userId);
         if (coordinator) {
-          window.__COORDINATOR_ID = coordinator.id;
+          window.__COORDINATOR_ID   = coordinator.id;
           window.__COORDINATOR_NAME = coordinator.name;
-          window.__IS_COORDINATOR = true;
+          window.__IS_COORDINATOR   = true;
         } else {
-          // Buscar perfil de professor
           let teacher = await getTeacherByUserId(userId);
           if (!teacher) {
-            // Perfil não encontrado — recriar automaticamente
-            const userName = session.user?.user_metadata?.name || session.user?.email?.split('@')[0] || 'Professor';
-            const userEmail = session.user?.email || '';
-            console.log('[App] Perfil de professor não encontrado, recriando...');
+            const name  = session.user?.user_metadata?.name || session.user?.email?.split('@')[0] || 'Professor';
+            const email = session.user?.email || '';
             try {
-              teacher = await createTeacherProfile(userId, userName, userEmail);
-              toast('Perfil recriado com sucesso!', 'success');
-            } catch (createErr) {
-              console.error('[App] Erro ao recriar perfil:', createErr);
-              toast('Erro ao recriar perfil. Tente fazer login novamente.', 'error');
+              teacher = await createTeacherProfile(userId, name, email);
+              toast('Perfil recriado automaticamente.', 'success');
+            } catch {
+              toast('Erro ao carregar perfil. Faça login novamente.', 'error');
               await signOut();
-              showLoginScreen();
+              showScreen('login-screen');
               return;
             }
           }
-          window.__TEACHER_ID = teacher.id;
+          window.__TEACHER_ID   = teacher.id;
           window.__TEACHER_NAME = teacher.name;
           window.__IS_COORDINATOR = false;
         }
       } catch (err) {
         console.error('Erro ao buscar perfil:', err);
-        toast('Erro ao carregar perfil. Tente novamente.', 'error');
+        toast('Erro ao carregar perfil.', 'error');
       }
     }
 
-    showApp();
+    showScreen('app-main');
     updateHeader();
-
-    // Direcionar para a aba correta
-    if (window.__IS_COORDINATOR) {
-      switchTab('coordinator');
-    } else {
-      switchTab('teacher');
-    }
+    switchTab(window.__IS_COORDINATOR ? 'coordinator' : 'teacher');
 
   } else if (isGuest) {
-    showApp();
+    showScreen('app-main');
     updateHeader();
     switchTab('student');
   } else {
-    showLoginScreen();
+    showScreen('login-screen');
   }
 
   if (isStandalone()) {
