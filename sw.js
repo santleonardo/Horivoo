@@ -6,8 +6,8 @@
  * - Chamadas ao Supabase API  → Network First com fallback para cache
  */
 
-const CACHE_NAME    = 'horivoo-v8';
-const RUNTIME_CACHE = 'horivoo-runtime-v8';
+const CACHE_NAME    = 'horivoo-v9';
+const RUNTIME_CACHE = 'horivoo-runtime-v9';
 
 // Arquivos do app shell — cacheados no install
 const APP_SHELL = [

@@ -419,6 +419,12 @@
     </div>
 
     <div class="form-group">
+      <label>Horário *</label>
+      <input type="time" id="input-booking-time" style="font-size:1.1rem; padding:10px 12px" />
+      <small style="color:var(--text-muted); font-size:0.75rem">Edite para alterar o horário (ex: 07:35, 19:45)</small>
+    </div>
+
+    <div class="form-group">
       <label>Seu nome *</label>
       <input type="text" id="input-student-name" placeholder="Ex: Maria Souza"
         autocomplete="name" inputmode="text" />
@@ -451,7 +457,12 @@
 
     <input type="hidden" id="coord-edit-teacher" />
     <input type="hidden" id="coord-edit-day" />
-    <input type="hidden" id="coord-edit-hour" />
+
+    <div class="form-group">
+      <label>Horário *</label>
+      <input type="time" id="coord-edit-hour" style="font-size:1.1rem; padding:10px 12px" />
+      <small style="color:var(--text-muted); font-size:0.75rem">Edite para alterar o horário (ex: 07:35, 19:45)</small>
+    </div>
 
     <div id="coord-edit-student-fields">
       <div class="form-group">
