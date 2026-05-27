@@ -4,7 +4,7 @@
  */
 
 import { getTeachers, getTeacherByUserId, getBlockedSlots, getBookings, blockSlot, unblockSlot, cancelBooking, subscribeTable } from './api.js';
-import { renderWeekGrid, toast, calcStats } from './ui.js';
+import { renderWeekGrid, toast, calcStats, openTeacherSlotModal } from './ui.js';
 import { TOTAL_SLOTS } from './config.js';
 import { getUserId } from './auth.js';
 
@@ -130,34 +130,42 @@ function renderTeacherGrid() {
 }
 
 // ================================================================
-// CLIQUE EM UM SLOT (bloquear / desbloquear)
+// CLIQUE EM UM SLOT — abre modal com horário editável
 // ================================================================
 
 async function handleSlotClick({ day, hour, status, id }) {
-  if (status === 'booked') return;
+  openTeacherSlotModal(
+    { day, hour, status, id },
+    async ({ action, hour: customHour, id: slotId }) => {
+      try {
+        if (action === 'block') {
+          const result = await blockSlot(currentTeacherId, day, customHour);
+          blockedSlots.push(result[0]);
+          toast(`Horário ${customHour} (${day}) bloqueado.`, 'info');
+        } else if (action === 'unblock') {
+          await unblockSlot(slotId);
+          blockedSlots = blockedSlots.filter(s => s.id !== slotId);
+          toast(`Horário ${customHour} (${day}) desbloqueado.`, 'success');
+        } else if (action === 'cancel_booking') {
+          await cancelBooking(slotId);
+          bookings = bookings.filter(b => b.id !== slotId);
+          toast('Agendamento cancelado.', 'success');
+        }
 
-  try {
-    if (status === 'blocked') {
-      await unblockSlot(id);
-      blockedSlots = blockedSlots.filter(s => s.id !== id);
-      toast(`Horário ${hour} (${day}) desbloqueado.`, 'success');
-    } else {
-      const result = await blockSlot(currentTeacherId, day, hour);
-      blockedSlots.push(result[0]);
-      toast(`Horário ${hour} (${day}) bloqueado.`, 'info');
+        renderTeacherGrid();
+        renderStats();
+        renderBookingsList();
+
+      } catch (err) {
+        console.error(err);
+        if (err.message.includes('policy') || err.message.includes('permission')) {
+          toast('Sem permissão. Apenas o professor pode alterar horários.', 'error');
+        } else {
+          toast('Erro ao atualizar horário. Tente novamente.', 'error');
+        }
+      }
     }
-
-    renderTeacherGrid();
-    renderStats();
-
-  } catch (err) {
-    console.error(err);
-    if (err.message.includes('policy') || err.message.includes('permission')) {
-      toast('Sem permissão. Apenas o professor pode alterar horários.', 'error');
-    } else {
-      toast('Erro ao atualizar horário. Tente novamente.', 'error');
-    }
-  }
+  );
 }
 
 // ================================================================

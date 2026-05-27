@@ -46,8 +46,8 @@ export function toast(message, type = 'info', duration = 3200) {
 
 /**
  * Abre o modal de agendamento
- * @param {object} slotInfo - { teacherName, day, hour }
- * @param {function} onConfirm - callback({ studentName, studentEmail })
+ * @param {object} slotInfo - { teacherName, day, dayFull, hour }
+ * @param {function} onConfirm - callback({ studentName, studentEmail, hour })
  */
 export function openBookingModal(slotInfo, onConfirm) {
   const overlay = document.getElementById('modal-overlay');
@@ -58,6 +58,12 @@ export function openBookingModal(slotInfo, onConfirm) {
 
   document.getElementById('input-student-name').value  = '';
   document.getElementById('input-student-email').value = '';
+
+  // Pré-preencher o input de horário com o horário do slot clicado
+  const timeInput = document.getElementById('input-booking-time');
+  if (timeInput) {
+    timeInput.value = slotInfo.hour || '';
+  }
 
   overlay.classList.add('open');
 
@@ -71,23 +77,107 @@ export function openBookingModal(slotInfo, onConfirm) {
   newConfirm.addEventListener('click', () => {
     const name  = document.getElementById('input-student-name').value.trim();
     const email = document.getElementById('input-student-email').value.trim();
+    // Usar o horário customizado do input, ou o original se vazio
+    const customHour = timeInput?.value || slotInfo.hour;
 
     if (!name) {
       toast('Por favor, informe seu nome.', 'error');
       return;
     }
 
+    if (!customHour) {
+      toast('Por favor, informe o horário.', 'error');
+      return;
+    }
+
     closeModal();
-    onConfirm({ studentName: name, studentEmail: email });
+    onConfirm({ studentName: name, studentEmail: email, hour: customHour });
   });
 
   cancelBtn.onclick = closeModal;
   overlay.onclick = (e) => { if (e.target === overlay) closeModal(); };
 }
 
+/**
+ * Abre o modal do professor para bloquear/desbloquear horário
+ * @param {object} slotInfo - { day, dayFull, hour, status, id }
+ * @param {function} onConfirm - callback({ action, hour, id })
+ */
+export function openTeacherSlotModal(slotInfo, onConfirm) {
+  const overlay = document.getElementById('teacher-slot-overlay');
+  if (!overlay) return;
+
+  const title = document.getElementById('teacher-slot-title');
+  const info  = document.getElementById('teacher-slot-info');
+  const timeInput = document.getElementById('teacher-slot-time');
+  const actionsEl = document.getElementById('teacher-slot-actions');
+
+  const dayFull = slotInfo.dayFull || slotInfo.day;
+
+  if (slotInfo.status === 'booked') {
+    title.textContent = 'Agendamento recebido';
+    info.textContent = `${dayFull} às ${slotInfo.hour}`;
+    if (timeInput) timeInput.value = slotInfo.hour;
+    actionsEl.innerHTML = `
+      <button class="btn btn-outline" id="teacher-slot-cancel-booking" style="flex:1">Cancelar agendamento</button>
+      <button class="btn btn-outline" id="teacher-slot-close">Fechar</button>
+    `;
+  } else if (slotInfo.status === 'blocked') {
+    title.textContent = 'Horário bloqueado';
+    info.textContent = `${dayFull} às ${slotInfo.hour}`;
+    if (timeInput) { timeInput.value = slotInfo.hour; }
+    actionsEl.innerHTML = `
+      <button class="btn btn-success" id="teacher-slot-unblock" style="flex:1">Desbloquear</button>
+      <button class="btn btn-outline" id="teacher-slot-close">Fechar</button>
+    `;
+  } else {
+    title.textContent = 'Bloquear horário';
+    info.textContent = `${dayFull}`;
+    if (timeInput) timeInput.value = slotInfo.hour;
+    actionsEl.innerHTML = `
+      <button class="btn btn-danger" id="teacher-slot-block" style="flex:1">Bloquear</button>
+      <button class="btn btn-outline" id="teacher-slot-close">Fechar</button>
+    `;
+  }
+
+  overlay.classList.add('open');
+
+  // Bind close
+  document.getElementById('teacher-slot-close')?.addEventListener('click', () => {
+    overlay.classList.remove('open');
+  });
+
+  // Bind block
+  document.getElementById('teacher-slot-block')?.addEventListener('click', () => {
+    const customHour = timeInput?.value || slotInfo.hour;
+    if (!customHour) {
+      toast('Informe o horário.', 'error');
+      return;
+    }
+    overlay.classList.remove('open');
+    onConfirm({ action: 'block', hour: customHour, id: null });
+  });
+
+  // Bind unblock
+  document.getElementById('teacher-slot-unblock')?.addEventListener('click', () => {
+    overlay.classList.remove('open');
+    onConfirm({ action: 'unblock', hour: slotInfo.hour, id: slotInfo.id });
+  });
+
+  // Bind cancel booking
+  document.getElementById('teacher-slot-cancel-booking')?.addEventListener('click', () => {
+    if (!confirm('Cancelar este agendamento?')) return;
+    overlay.classList.remove('open');
+    onConfirm({ action: 'cancel_booking', hour: slotInfo.hour, id: slotInfo.id });
+  });
+
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.classList.remove('open'); };
+}
+
 export function closeModal() {
   document.getElementById('modal-overlay')?.classList.remove('open');
   document.getElementById('coord-edit-overlay')?.classList.remove('open');
+  document.getElementById('teacher-slot-overlay')?.classList.remove('open');
 }
 
 // ================================================================
@@ -111,13 +201,14 @@ export function setLoading(containerId, isLoading, message = 'Carregando...') {
 }
 
 // ================================================================
-// RENDERIZAÇÃO DA GRADE SEMANAL
+// RENDERIZAÇÃO DA GRADE SEMANAL (DINÂMICA)
 // ================================================================
 
-import { SCHEDULE, DAYS } from './config.js';
+import { SCHEDULE, DAYS, buildMergedSchedule } from './config.js';
 
 /**
- * Renderiza a grade semanal.
+ * Renderiza a grade semanal com horários dinâmicos.
+ * Mescla os horários fixos do SCHEDULE com horários customizados do banco.
  * 
  * @param {string} containerId - id do elemento que receberá a grade
  * @param {object[]} blocked - array de { id, day, hour, teacher_name?, teacher_id? }
@@ -147,11 +238,13 @@ export function renderWeekGrid(containerId, blocked, booked, mode, callbacks = {
     bookedMap[key] = b;
   });
 
+  // Construir schedule dinâmico mesclando fixo + customizado do banco
+  const mergedSchedule = buildMergedSchedule(blocked, booked);
+
   let html = '';
 
   if (mode === 'coordinator' && !callbacks.teacherName) {
     // Visão "todos os professores" — grade por professor
-    // Agrupar por professor
     const teacherNames = [...new Set([
       ...blocked.map(s => s.teacher_name || callbacks.teacherName),
       ...booked.map(b => b.teacher_name || callbacks.teacherName)
@@ -169,7 +262,14 @@ export function renderWeekGrid(containerId, blocked, booked, mode, callbacks = {
             <div class="day-label">${day.full}</div>
           </div>`;
 
-        Object.entries(SCHEDULE).forEach(([periodKey, period]) => {
+        Object.entries(mergedSchedule).forEach(([periodKey, period]) => {
+          // Verificar se há algum slot neste período para este professor/dia
+          const hasSlots = period.hours.some(hour => {
+            const key = `${tname}:${day.key}:${hour}`;
+            return key in blockedMap || key in bookedMap;
+          });
+
+          // Sempre renderizar período se tem horas do SCHEDULE ou slots ocupados
           html += `<div class="period-section period-${periodKey}">
             <div class="period-label">${period.label}</div>`;
 
@@ -184,11 +284,11 @@ export function renderWeekGrid(containerId, blocked, booked, mode, callbacks = {
             let cls, label, title;
             if (isBooked) {
               cls   = 'booked';
-              label = `${hour} 👤 ${bookData.student_name}`;
+              label = `${hour} \u{1F464} ${bookData.student_name}`;
               title = `Agendado: ${bookData.student_name} — clique para editar`;
             } else if (isBlocked) {
               cls   = 'blocked';
-              label = `${hour} ✕`;
+              label = `${hour} \u2715`;
               title = 'Bloqueado — clique para editar';
             } else {
               cls   = 'available';
@@ -228,7 +328,7 @@ export function renderWeekGrid(containerId, blocked, booked, mode, callbacks = {
           <div class="day-label">${day.full}</div>
         </div>`;
 
-      Object.entries(SCHEDULE).forEach(([periodKey, period]) => {
+      Object.entries(mergedSchedule).forEach(([periodKey, period]) => {
         html += `<div class="period-section period-${periodKey}">
           <div class="period-label">${period.label}</div>`;
 
@@ -244,11 +344,11 @@ export function renderWeekGrid(containerId, blocked, booked, mode, callbacks = {
 
             if (isBooked) {
               cls   = 'booked';
-              label = `${hour} 👤`;
+              label = `${hour} \u{1F464}`;
               title = `Agendado: ${booking.student_name}`;
             } else if (isBlocked) {
               cls   = 'blocked';
-              label = `${hour} ✕`;
+              label = `${hour} \u2715`;
               title = 'Clique para desbloquear';
             } else {
               cls   = 'available';
@@ -263,7 +363,6 @@ export function renderWeekGrid(containerId, blocked, booked, mode, callbacks = {
               data-status="${isBooked ? 'booked' : (isBlocked ? 'blocked' : 'available')}"
               data-id="${slotId || ''}"
               title="${title}"
-              ${isBooked ? 'disabled' : ''}
             >${label}</button>`;
 
           } else if (mode === 'coordinator') {
@@ -272,11 +371,11 @@ export function renderWeekGrid(containerId, blocked, booked, mode, callbacks = {
 
             if (isBooked) {
               cls   = 'booked';
-              label = `${hour} 👤 ${booking.student_name}`;
+              label = `${hour} \u{1F464} ${booking.student_name}`;
               title = `Agendado: ${booking.student_name} — clique para editar`;
             } else if (isBlocked) {
               cls   = 'blocked';
-              label = `${hour} ✕`;
+              label = `${hour} \u2715`;
               title = 'Bloqueado — clique para editar';
             } else {
               cls   = 'available';
@@ -296,13 +395,42 @@ export function renderWeekGrid(containerId, blocked, booked, mode, callbacks = {
             >${label}</button>`;
 
           } else {
-            // Modo aluno: só renderiza se disponível
-            if (!isBlocked && !isBooked) {
+            // Modo aluno: mostra disponíveis (clicáveis) e ocupados (somente leitura)
+            const scheduleHours = new Set([
+              ...SCHEDULE.manha.hours,
+              ...SCHEDULE.tarde.hours,
+              ...SCHEDULE.noite.hours
+            ]);
+            const isCustom = !scheduleHours.has(hour);
+            const customCls = isCustom ? ' custom-time' : '';
+
+            if (isBooked) {
               html += `<button
-                class="slot student-available"
+                class="slot booked${customCls}"
                 data-day="${day.key}"
                 data-day-full="${day.full}"
                 data-hour="${hour}"
+                data-status="booked"
+                disabled
+                title="Agendado: ${booking.student_name}"
+              >${hour} \u{1F464} ${booking.student_name}</button>`;
+            } else if (isBlocked) {
+              html += `<button
+                class="slot blocked${customCls}"
+                data-day="${day.key}"
+                data-day-full="${day.full}"
+                data-hour="${hour}"
+                data-status="blocked"
+                disabled
+                title="Horário bloqueado"
+              >${hour} \u2715</button>`;
+            } else {
+              html += `<button
+                class="slot student-available${customCls}"
+                data-day="${day.key}"
+                data-day-full="${day.full}"
+                data-hour="${hour}"
+                data-status="available"
                 title="Clique para agendar"
               >${hour}</button>`;
             }
@@ -346,6 +474,6 @@ export function renderWeekGrid(containerId, blocked, booked, mode, callbacks = {
 export function calcStats(blocked, booked, totalSlots) {
   const totalBlocked = blocked.length;
   const totalBooked  = booked.length;
-  const totalFree    = totalSlots - totalBlocked - totalBooked;
+  const totalFree    = Math.max(0, totalSlots - totalBlocked - totalBooked);
   return { totalBlocked, totalBooked, totalFree };
 }

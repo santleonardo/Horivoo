@@ -148,7 +148,7 @@ function renderCoordinatorGrid() {
 // ================================================================
 
 function renderCoordinatorStats() {
-  const totalFree    = TOTAL_SLOTS * (currentTeacherId ? 1 : teachers.length) - blockedSlots.length - bookings.length;
+  const totalFree    = Math.max(0, TOTAL_SLOTS * (currentTeacherId ? 1 : teachers.length) - blockedSlots.length - bookings.length);
   const totalBlocked = blockedSlots.length;
   const totalBooked  = bookings.length;
 
@@ -322,7 +322,13 @@ function openEditModal(data) {
   // Campos
   document.getElementById('coord-edit-teacher').value = data.teacherId || '';
   document.getElementById('coord-edit-day').value = data.day || '';
-  document.getElementById('coord-edit-hour').value = data.hour || '';
+
+  // Pré-preencher o input de hora com o valor do slot
+  const hourInput = document.getElementById('coord-edit-hour');
+  if (hourInput) {
+    hourInput.value = data.hour || '';
+  }
+
   document.getElementById('coord-edit-student-name').value = '';
   document.getElementById('coord-edit-student-email').value = '';
 
@@ -346,7 +352,7 @@ function openEditModal(data) {
   } else if (data.type === 'blocked') {
     studentFields.style.display = 'none';
     actionBtns.innerHTML = `
-      <button class="btn btn-success" id="coord-save-btn" style="flex:1">Bloquear</button>
+      <button class="btn btn-success" id="coord-save-btn" style="flex:1">Salvar</button>
       <button class="btn btn-outline" id="coord-unblock-btn">Desbloquear</button>
       <button class="btn btn-outline" id="coord-cancel-btn">Fechar</button>
     `;
@@ -401,6 +407,11 @@ async function handleSave(data) {
   const studentName = document.getElementById('coord-edit-student-name').value.trim();
   const studentEmail = document.getElementById('coord-edit-student-email').value.trim();
 
+  if (!hour) {
+    toast('Informe o horário.', 'error');
+    return;
+  }
+
   if (data.type === 'booked') {
     // Editar agendamento existente: remover e recriar
     try {
@@ -441,8 +452,15 @@ async function handleSave(data) {
 
 async function handleBlock(data) {
   const teacherId = data.teacherId || currentTeacherId;
+  const hour      = document.getElementById('coord-edit-hour').value;
+
+  if (!hour) {
+    toast('Informe o horário.', 'error');
+    return;
+  }
+
   try {
-    await blockSlot(teacherId, data.day, data.hour);
+    await blockSlot(teacherId, data.day, hour);
     toast('Horário bloqueado!', 'success');
     await loadCoordinatorData();
   } catch (err) {
@@ -562,7 +580,14 @@ async function htmlToCanvas(gridEl) {
   const teacherHeaderHeight = 32;
   const margin = 20;
   
-  const totalHours = Object.values(SCHEDULE).reduce((acc, p) => acc + p.hours.length, 0);
+  // Contar horas dinamicamente a partir dos dados reais
+  const allHoursSet = new Set();
+  blockedSlots.forEach(s => allHoursSet.add(s.hour));
+  bookings.forEach(b => allHoursSet.add(b.hour));
+  // Adicionar horas do SCHEDULE
+  Object.values(SCHEDULE).forEach(p => p.hours.forEach(h => allHoursSet.add(h)));
+  const totalHours = allHoursSet.size;
+
   const canvasWidth = margin * 2 + DAYS.length * dayWidth;
   const canvasHeight = margin + headerHeight + teacherHeaderHeight + totalHours * hourHeight + margin;
   
@@ -597,44 +622,45 @@ async function htmlToCanvas(gridEl) {
     ctx.fillText(day.full, x + dayWidth / 2 - 2, y + 20);
   });
   
-  // Slots
-  ctx.textAlign = 'center';
-  ctx.font = '10px DM Sans, sans-serif';
-  
+  // Slots — ordenar horas cronologicamente
+  const sortedHours = [...allHoursSet].sort((a, b) => {
+    const [ah, am] = a.split(':').map(Number);
+    const [bh, bm] = b.split(':').map(Number);
+    return (ah * 60 + am) - (bh * 60 + bm);
+  });
+
   const blockedMap = {};
   const bookedMap = {};
   blockedSlots.forEach(s => { blockedMap[`${s.teacher_name || currentTeacherName}:${s.day}:${s.hour}`] = s; });
   bookings.forEach(b => { bookedMap[`${b.teacher_name || currentTeacherName}:${b.day}:${b.hour}`] = b; });
   
-  let rowIdx = 0;
-  Object.entries(SCHEDULE).forEach(([periodKey, period]) => {
-    period.hours.forEach(hour => {
-      const y = margin + headerHeight + teacherHeaderHeight + rowIdx * hourHeight;
+  ctx.textAlign = 'center';
+  ctx.font = '10px DM Sans, sans-serif';
+  
+  sortedHours.forEach((hour, rowIdx) => {
+    const y = margin + headerHeight + teacherHeaderHeight + rowIdx * hourHeight;
+    
+    DAYS.forEach((day, i) => {
+      const x = margin + i * dayWidth;
+      const key = `${currentTeacherName}:${day.key}:${hour}`;
+      const isBlocked = key in blockedMap;
+      const isBooked = key in bookedMap;
       
-      DAYS.forEach((day, i) => {
-        const x = margin + i * dayWidth;
-        const key = `${currentTeacherName}:${day.key}:${hour}`;
-        const isBlocked = key in blockedMap;
-        const isBooked = key in bookedMap;
-        
-        let bg, fg, label;
-        
-        if (isBooked) {
-          bg = '#EAE9F7'; fg = '#5B5EA6'; label = `${hour} 👤`;
-        } else if (isBlocked) {
-          bg = '#FDE8DF'; fg = '#C1440E'; label = `${hour} ✕`;
-        } else {
-          bg = '#D8F3DC'; fg = '#2D6A4F'; label = hour;
-        }
-        
-        // Célula
-        ctx.fillStyle = bg;
-        ctx.fillRect(x + 1, y + 1, dayWidth - 6, hourHeight - 4);
-        ctx.fillStyle = fg;
-        ctx.fillText(label, x + dayWidth / 2 - 2, y + hourHeight / 2 + 3);
-      });
+      let bg, fg, label;
       
-      rowIdx++;
+      if (isBooked) {
+        bg = '#EAE9F7'; fg = '#5B5EA6'; label = `${hour} 👤`;
+      } else if (isBlocked) {
+        bg = '#FDE8DF'; fg = '#C1440E'; label = `${hour} ✕`;
+      } else {
+        bg = '#D8F3DC'; fg = '#2D6A4F'; label = hour;
+      }
+      
+      // Célula
+      ctx.fillStyle = bg;
+      ctx.fillRect(x + 1, y + 1, dayWidth - 6, hourHeight - 4);
+      ctx.fillStyle = fg;
+      ctx.fillText(label, x + dayWidth / 2 - 2, y + hourHeight / 2 + 3);
     });
   });
   

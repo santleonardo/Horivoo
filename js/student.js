@@ -100,22 +100,16 @@ function renderStudentGrid() {
     countEl.textContent = freeSlots;
     countEl.className   = freeSlots > 0 ? 'badge badge-success' : 'badge badge-danger';
   }
-
-  // Se não há nenhum slot disponível
-  if (freeSlots === 0) {
-    container.innerHTML += `
-      <div class="empty-state" style="grid-column:1/-1; padding: 48px 0;">
-        <div class="empty-icon">😔</div>
-        <p>Não há horários disponíveis esta semana.<br>Tente novamente mais tarde.</p>
-      </div>`;
-  }
 }
 
 // ================================================================
 // SELECIONA UM SLOT PARA AGENDAR
 // ================================================================
 
-function handleSlotSelect({ day, dayFull, hour }) {
+function handleSlotSelect({ day, dayFull, hour, status }) {
+  // Ignorar cliques em slots ocupados
+  if (status === 'booked' || status === 'blocked') return;
+
   // Verifica (novamente) se ainda está disponível (proteção contra race condition)
   const alreadyBooked  = bookings.some(b   => b.day === day && b.hour === hour);
   const alreadyBlocked = blockedSlots.some(s => s.day === day && s.hour === hour);
@@ -128,7 +122,7 @@ function handleSlotSelect({ day, dayFull, hour }) {
 
   openBookingModal(
     { day, dayFull, hour, teacherName: currentTeacherName },
-    ({ studentName, studentEmail }) => confirmBooking(day, hour, studentName, studentEmail)
+    ({ studentName, studentEmail, hour: customHour }) => confirmBooking(day, customHour, studentName, studentEmail)
   );
 }
 
@@ -138,6 +132,16 @@ function handleSlotSelect({ day, dayFull, hour }) {
 
 async function confirmBooking(day, hour, studentName, studentEmail) {
   try {
+    // Verificar se o horário customizado já está ocupado
+    const alreadyBooked  = bookings.some(b   => b.day === day && b.hour === hour);
+    const alreadyBlocked = blockedSlots.some(s => s.day === day && s.hour === hour);
+
+    if (alreadyBooked || alreadyBlocked) {
+      toast('Este horário já está ocupado. Escolha outro.', 'error');
+      loadStudentData(currentTeacherId);
+      return;
+    }
+
     const result = await createBooking({
       teacher_id:    currentTeacherId,
       student_name:  studentName,
