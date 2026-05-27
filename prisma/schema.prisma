@@ -1,0 +1,158 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  password  String
+  role      String   @default("teacher") // "teacher" | "coordinator" | "student"
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  teacherProfile     Teacher?
+  coordinatorProfile Coordinator?
+  studentProfile     Student?
+  bookingsAsStudent  Booking[] @relation("StudentBookings")
+}
+
+model Teacher {
+  id        String @id @default(cuid())
+  userId    String @unique
+  user      User   @relation(fields: [userId], references: [id])
+  name      String
+  email     String
+  subjects  String @default("") // comma-separated
+  bio       String @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  availableSlots    AvailableSlot[]
+  blockedSlots      BlockedSlot[]
+  bookings          Booking[]
+  recurringBookings RecurringBooking[]
+  blockedPeriods    BlockedPeriod[]
+}
+
+model Coordinator {
+  id        String @id @default(cuid())
+  userId    String @unique
+  user      User   @relation(fields: [userId], references: [id])
+  name      String
+  email     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Student {
+  id        String @id @default(cuid())
+  userId    String @unique
+  user      User   @relation(fields: [userId], references: [id])
+  name      String
+  email     String
+  phone     String @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bookings Booking[] @relation("StudentProfileBookings")
+}
+
+model AvailableSlot {
+  id        String   @id @default(cuid())
+  teacherId String
+  teacher   Teacher  @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  dayOfWeek Int      // 0=Domingo, 1=Segunda, ..., 6=Sábado
+  startTime String   // "09:00"
+  endTime   String   // "10:00"
+  createdAt DateTime @default(now())
+
+  @@unique([teacherId, dayOfWeek, startTime, endTime])
+}
+
+model BlockedSlot {
+  id        String   @id @default(cuid())
+  teacherId String
+  teacher   Teacher  @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  date      String   // "2025-01-20" — data específica
+  startTime String   // "09:00"
+  endTime   String   // "10:00"
+  reason    String?  // "feriado", "recesso", "pessoal"
+  createdAt DateTime @default(now())
+}
+
+model Booking {
+  id           String   @id @default(cuid())
+  teacherId    String
+  teacher      Teacher  @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  studentId    String?
+  student      User?    @relation("StudentBookings", fields: [studentId], references: [id], onDelete: SetNull)
+  studentProfileId String?
+  studentProfile  Student? @relation("StudentProfileBookings", fields: [studentProfileId], references: [id], onDelete: SetNull)
+  studentName  String
+  studentEmail String?
+  date         String   // "2025-01-20" — data específica
+  dayOfWeek    Int
+  startTime    String   // "09:00"
+  endTime      String   // "10:00"
+  status       String   @default("confirmed") // "confirmed" | "cancelled" | "completed"
+  recurringId  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  recurringBooking RecurringBooking? @relation(fields: [recurringId], references: [id])
+}
+
+model RecurringBooking {
+  id           String   @id @default(cuid())
+  teacherId    String
+  teacher      Teacher  @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  studentName  String
+  studentEmail String?
+  dayOfWeek    Int      // 1=Segunda
+  startTime    String   // "14:00"
+  endTime      String   // "15:00"
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  bookings Booking[]
+}
+
+model NonClassDay {
+  id        String   @id @default(cuid())
+  date      String   @unique // "2025-01-20"
+  reason    String            // "Feriado — Independência"
+  createdAt DateTime @default(now())
+}
+
+model Holiday {
+  id        String   @id @default(cuid())
+  date      String   // "2025-01-01"
+  name      String   // "Confraternização Universal"
+  type      String   // "nacional" | "estadual" | "municipal"
+  recurring Boolean  @default(false)
+}
+
+model Recess {
+  id          String   @id @default(cuid())
+  startDate   String   // "2025-07-01"
+  endDate     String   // "2025-07-15"
+  description String   // "Recesso de Inverno"
+  createdAt   DateTime @default(now())
+}
+
+model BlockedPeriod {
+  id        String   @id @default(cuid())
+  teacherId String
+  teacher   Teacher  @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  startDate String   // "2025-07-01"
+  endDate   String   // "2025-07-15"
+  reason    String?  // "Viagem", "Licença"
+  createdAt DateTime @default(now())
+}
