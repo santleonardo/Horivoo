@@ -15,8 +15,8 @@
 // ================================================================
 // CONFIGURAÇÃO — deixe como placeholder; use a tela de config do app
 // ================================================================
-const SUPABASE_URL = 'SUA_URL_AQUI';      // ex: https://xyz.supabase.co
-const SUPABASE_KEY = 'SUA_ANON_KEY_AQUI'; // ex: eyJhbGciOiJIUzI1...
+const SUPABASE_URL = 'https://adecrpansjqpvcxmvqut.supabase.co';      // ex: https://xyz.supabase.co
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFkZWNycGFuc2pxcHZjeG12cXV0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3OTc2MTYsImV4cCI6MjA5NTM3MzYxNn0.3nGPdNGpcJWfnDcHBwMxcGwu_n6QIHWz2NEVb8BuDVE'; // ex: eyJhbGciOiJIUzI1...
 
 // ================================================================
 // ESTRUTURA DE HORÁRIOS
