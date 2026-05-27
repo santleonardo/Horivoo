@@ -5,13 +5,18 @@
  * - Token refresh implementado (antes o usuário era deslogado após 1h sem aviso)
  * - Mensagens de erro em português para todos os casos
  * - Proteção contra race condition no refresh
+ * - FIX: credenciais agora usam lazy getters (como api.ts), evitando
+ *   o problema de constantes serem avaliadas antes do override window.__SB_*
  */
 
 import { SUPABASE_URL as CFG_URL, SUPABASE_KEY as CFG_KEY } from './config.js';
 import type { Session, AuthUser, SignUpResponse, SignInResponse } from './types.js';
 
-const BASE_URL: string = (window.__SB_URL || CFG_URL) + '/auth/v1';
-const API_KEY: string  = window.__SB_KEY || CFG_KEY;
+// FIX: lazy getters em vez de constantes avaliadas no load-time
+// (idêntico ao que api.ts já faz)
+function getSbUrl(): string { return window.__SB_URL || CFG_URL; }
+function getSbKey(): string { return window.__SB_KEY || CFG_KEY; }
+
 const AUTH_KEY: string = 'horivoo_session';
 
 // Mutex para evitar múltiplos refreshes simultâneos
@@ -27,10 +32,10 @@ interface AuthReqOptions extends RequestInit {
 
 async function authReq<T = unknown>(endpoint: string, options: AuthReqOptions = {}): Promise<T> {
   const { noAuth, ...fetchOptions } = options;
-  const url: string = `${BASE_URL}${endpoint}`;
+  const url: string = `${getSbUrl()}/auth/v1${endpoint}`;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    'apikey': API_KEY,
+    'apikey': getSbKey(),
   };
 
   const session: Session | null = getRawSession();
