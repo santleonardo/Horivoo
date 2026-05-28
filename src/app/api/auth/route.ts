@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
         });
       }
 
-      const token = createToken({
+      const token = await createToken({
         userId: user.id,
         email: user.email,
         role: user.role,
@@ -91,7 +91,7 @@ export async function POST(request: NextRequest) {
 
     const teacher = (await db.teacher.findUnique({ where: { user_id: user.id } })) as unknown as AuthTeacher | null;
 
-    const token = createToken({
+    const token = await createToken({
       userId: user.id,
       email: user.email,
       role: user.role,
