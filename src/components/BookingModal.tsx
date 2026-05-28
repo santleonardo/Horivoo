@@ -5,8 +5,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { SlotInfo } from './WeekGrid';
 import { toast } from 'sonner';
+import { BookOpen } from 'lucide-react';
 
 interface BookingModalProps {
   open: boolean;
@@ -41,6 +43,7 @@ export default function BookingModal({
 }: BookingModalProps) {
   const [studentName, setStudentName] = useState('');
   const [studentEmail, setStudentEmail] = useState('');
+  const [notes, setNotes] = useState('');
   const [blockReason, setBlockReason] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -61,6 +64,7 @@ export default function BookingModal({
           date,
           startTime,
           endTime,
+          notes: notes || '',
         }),
       });
       const data = await res.json();
@@ -187,6 +191,22 @@ export default function BookingModal({
                 value={studentEmail}
                 onChange={(e) => setStudentEmail(e.target.value)}
               />
+            </div>
+            <div className="space-y-2">
+              <Label className="flex items-center gap-1">
+                <BookOpen className="size-4" />
+                Matéria / Livro / Observações
+              </Label>
+              <Textarea
+                placeholder="Ex: Livro 1 - Teens, Aula de inglês, Capítulo 3..."
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                rows={3}
+                className="resize-none"
+              />
+              <p className="text-xs text-muted-foreground">
+                Campo livre para anotar matéria, livro, capítulo ou outras informações.
+              </p>
             </div>
           </div>
         )}
