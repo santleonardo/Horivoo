@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { all, run } from '@/lib/db';
-import { randomUUID } from 'crypto';
+import { db } from '@/lib/db';
 
 export async function GET() {
   try {
-    const recesses = all('SELECT * FROM recesses ORDER BY start_date ASC');
+    const recesses = await db.recess.findMany({ orderBy: { start_date: 'asc' } });
     return NextResponse.json({ recesses });
   } catch (error) {
     console.error(error);
@@ -21,9 +20,7 @@ export async function POST(request: NextRequest) {
     if (startDate > endDate) {
       return NextResponse.json({ error: 'Data início deve ser anterior à data fim' }, { status: 400 });
     }
-    const id = randomUUID();
-    run('INSERT INTO recesses (id, start_date, end_date, description) VALUES (?, ?, ?, ?)', [id, startDate, endDate, description]);
-    const recess = { id, start_date: startDate, end_date: endDate, description };
+    const recess = await db.recess.create({ data: { start_date: startDate, end_date: endDate, description } });
     return NextResponse.json({ recess }, { status: 201 });
   } catch (error) {
     console.error(error);

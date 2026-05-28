@@ -1,18 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { all, run } from '@/lib/db';
-import { randomUUID } from 'crypto';
+import { db } from '@/lib/db';
 
 export async function GET() {
   try {
-    const students = all('SELECT * FROM students ORDER BY name ASC');
+    const students = await db.student.findMany({
+      orderBy: { name: 'asc' },
+    });
+
     return NextResponse.json({
       students: students.map(s => ({
         id: s.id,
         name: s.name,
         email: s.email,
         phone: s.phone,
-        user_id: s.user_id,
-        created_at: s.created_at,
+        user_id: s.userId,
+        created_at: s.createdAt,
       })),
     });
   } catch (error) {
@@ -30,9 +32,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Nome e email são obrigatórios' }, { status: 400 });
     }
 
-    const id = randomUUID();
-    run('INSERT INTO students (id, name, email, phone, user_id) VALUES (?, ?, ?, ?, ?)', [id, name, email, phone || '', userId || '']);
-    const student = { id, name, email, phone: phone || '', user_id: userId || '' };
+    const student = await db.student.create({
+      data: { name, email, phone: phone || '', user_id: userId || '' },
+    });
 
     return NextResponse.json({ student }, { status: 201 });
   } catch (error) {

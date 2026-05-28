@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { run } from '@/lib/db';
+import { db } from '@/lib/db';
 
 export async function DELETE(
   request: NextRequest,
@@ -7,7 +7,7 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    run('DELETE FROM blocked_slots WHERE id = ?', [id]);
+    await db.blockedSlot.delete({ where: { id } });
     return NextResponse.json({ ok: true });
   } catch (error) {
     console.error('Error deleting blocked slot:', error);

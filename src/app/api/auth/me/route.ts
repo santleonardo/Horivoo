@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { get } from '@/lib/db';
+import { db } from '@/lib/db';
 import { verifyToken } from '@/lib/auth';
+
+type Row = Record<string, unknown>;
 
 export async function GET(request: NextRequest) {
   try {
@@ -12,10 +14,10 @@ export async function GET(request: NextRequest) {
     const payload = await verifyToken(token);
     if (!payload) return NextResponse.json({ error: 'Token inválido ou expirado' }, { status: 401 });
 
-    const user = get<{ id: string; email: string; name: string; role: string }>('SELECT id, email, name, role FROM users WHERE id = ?', [payload.userId]);
+    const user = await db.user.findUnique({ where: { id: payload.userId } }) as Row | null;
     if (!user) return NextResponse.json({ error: 'Usuário não encontrado' }, { status: 404 });
 
-    const teacher = get<{ id: string }>('SELECT id FROM teachers WHERE user_id = ?', [user.id]);
+    const teacher = await db.teacher.findUnique({ where: { user_id: user.id as string } }) as Row | null;
 
     return NextResponse.json({
       user: { id: user.id, email: user.email, name: user.name, role: user.role, teacherId: teacher?.id },

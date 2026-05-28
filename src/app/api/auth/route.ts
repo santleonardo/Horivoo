@@ -1,7 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db, get, run } from '@/lib/db';
+import { db } from '@/lib/db';
 import { verifyPassword, hashPassword, createToken } from '@/lib/auth';
-import { randomUUID } from 'crypto';
+
+interface AuthUser {
+  id: string;
+  email: string;
+  name: string;
+  password: string;
+  role: string;
+}
+
+interface AuthTeacher {
+  id: string;
+  user_id: string;
+  name: string;
+  email: string;
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -17,43 +31,43 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Perfil inválido' }, { status: 400 });
       }
 
-      const existing = get('SELECT id FROM users WHERE email = ?', [email]);
+      const existing = await db.user.findUnique({ where: { email } });
       if (existing) {
         return NextResponse.json({ error: 'Email já cadastrado' }, { status: 400 });
       }
 
       const hashedPassword = hashPassword(password);
-      const userId = randomUUID();
+      const user = (await db.user.create({
+        data: { email, name, password: hashedPassword, role },
+      })) as unknown as AuthUser;
 
-      db.transaction(() => {
-        run('INSERT INTO users (id, email, name, password, role) VALUES (?, ?, ?, ?, ?)', [userId, email, name, hashedPassword, role]);
+      let teacherId: string | undefined;
 
-        if (role === 'teacher') {
-          const teacherId = randomUUID();
-          run('INSERT INTO teachers (id, user_id, name, email) VALUES (?, ?, ?, ?)', [teacherId, userId, name, email]);
-        }
+      if (role === 'teacher') {
+        const teacher = (await db.teacher.create({
+          data: { user_id: user.id, name, email },
+        })) as unknown as AuthTeacher;
+        teacherId = teacher.id;
+      }
 
-        if (role === 'coordinator') {
-          run('INSERT INTO coordinators (id, user_id, name, email) VALUES (?, ?, ?, ?)', [randomUUID(), userId, name, email]);
-        }
-      })();
-
-      // Get teacherId if applicable
-      const teacher = get<{ id: string }>('SELECT id FROM teachers WHERE user_id = ?', [userId]);
-      const teacherId = teacher?.id;
+      if (role === 'coordinator') {
+        await db.coordinator.create({
+          data: { user_id: user.id, name, email },
+        });
+      }
 
       const token = await createToken({
-        userId,
-        email,
-        role,
+        userId: user.id,
+        email: user.email,
+        role: user.role,
       });
 
       return NextResponse.json({
         user: {
-          id: userId,
-          email,
-          name,
-          role,
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          role: user.role,
           ...(teacherId && { teacherId }),
         },
         token,
@@ -65,7 +79,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Email e senha são obrigatórios' }, { status: 400 });
     }
 
-    const user = get<{ id: string; email: string; name: string; password: string; role: string }>('SELECT * FROM users WHERE email = ?', [email]);
+    const user = (await db.user.findUnique({ where: { email } })) as unknown as AuthUser | null;
     if (!user) {
       return NextResponse.json({ error: 'Usuário não encontrado' }, { status: 404 });
     }
@@ -75,7 +89,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Senha incorreta' }, { status: 401 });
     }
 
-    const teacher = get<{ id: string }>('SELECT id FROM teachers WHERE user_id = ?', [user.id]);
+    const teacher = (await db.teacher.findUnique({ where: { user_id: user.id } })) as unknown as AuthTeacher | null;
 
     const token = await createToken({
       userId: user.id,
