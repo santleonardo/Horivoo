@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { all, get } from '@/lib/db';
 import { format } from 'date-fns';
 
 export async function GET() {
@@ -14,19 +14,24 @@ export async function GET() {
       weekDates.push(format(d, 'yyyy-MM-dd'));
     }
 
-    const [totalTeachers, totalStudents, totalBookings, todayBookings, weekBookings, upcoming] = await Promise.all([
-      db.teacher.count(),
-      db.student.count(),
-      db.booking.count({ where: { status: 'confirmed' } }),
-      db.booking.count({ where: { date: today, status: 'confirmed' } }),
-      db.booking.count({ where: { date: { in: weekDates }, status: 'confirmed' } }),
-      db.booking.findMany({ where: { date: { gte: today }, status: 'confirmed' }, orderBy: [{ date: 'asc' }, { start_time: 'asc' }], take: 5 }),
-    ]);
+    const totalTeachers = (get<{ count: number }>('SELECT COUNT(*) as count FROM teachers')?.count) ?? 0;
+    const totalStudents = (get<{ count: number }>('SELECT COUNT(*) as count FROM students')?.count) ?? 0;
+    const totalBookings = (get<{ count: number }>('SELECT COUNT(*) as count FROM bookings WHERE status = ?', ['confirmed'])?.count) ?? 0;
+    const todayBookings = (get<{ count: number }>('SELECT COUNT(*) as count FROM bookings WHERE date = ? AND status = ?', [today, 'confirmed'])?.count) ?? 0;
+
+    const weekPlaceholders = weekDates.map(() => '?').join(',');
+    const weekBookings = (get<{ count: number }>(`SELECT COUNT(*) as count FROM bookings WHERE date IN (${weekPlaceholders}) AND status = ?`, [...weekDates, 'confirmed'])?.count) ?? 0;
+
+    const upcoming = all(`SELECT * FROM bookings WHERE date >= ? AND status = ? ORDER BY date ASC, start_time ASC LIMIT 5`, [today, 'confirmed']);
 
     // Enrich upcoming with teacher names
-    const teacherIds = [...new Set((upcoming as Record<string, unknown>[]).map(b => b.teacher_id as string))];
-    const teachers = teacherIds.length ? await db.teacher.findMany({ where: { id: { in: teacherIds } } }) : [];
-    const tMap = new Map((teachers as Record<string, unknown>[]).map(t => [t.id, t.name]));
+    const teacherIds = [...new Set(upcoming.map(b => b.teacher_id as string))];
+    const tMap = new Map<string, string>();
+    if (teacherIds.length) {
+      const placeholders = teacherIds.map(() => '?').join(',');
+      const teachers = all(`SELECT id, name FROM teachers WHERE id IN (${placeholders})`, teacherIds);
+      teachers.forEach(t => tMap.set(t.id as string, t.name as string));
+    }
 
     return NextResponse.json({
       totalTeachers,
@@ -34,7 +39,7 @@ export async function GET() {
       totalBookings,
       todayBookings,
       weekBookings,
-      upcomingBookings: (upcoming as Record<string, unknown>[]).map(b => ({
+      upcomingBookings: upcoming.map(b => ({
         id: b.id,
         date: b.date,
         start_time: b.start_time,

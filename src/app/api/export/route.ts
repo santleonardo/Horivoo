@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { all } from '@/lib/db';
 import { addDays, format, parse, startOfWeek, getDay } from 'date-fns';
-
-type Row = Record<string, unknown>;
 
 export async function GET(request: NextRequest) {
   try {
@@ -25,35 +23,51 @@ export async function GET(request: NextRequest) {
       for (let i = 0; i < 7; i++) dates.push(format(addDays(ws, i), 'yyyy-MM-dd'));
     }
 
-    const where: Row = { date: { in: dates } };
-    if (teacherId) where.teacher_id = teacherId;
+    const datePlaceholders = dates.map(() => '?').join(',');
 
-    const [bookings, availableSlots, blockedSlots, nonClassDays, holidays] = await Promise.all([
-      db.booking.findMany({ where, orderBy: [{ date: 'asc' }, { start_time: 'asc' }] }),
-      db.availableSlot.findMany({ where: teacherId ? { teacher_id: teacherId } : {} }),
-      db.blockedSlot.findMany({ where: teacherId ? { teacher_id: teacherId, date: { in: dates } } : { date: { in: dates } } }),
-      db.nonClassDay.findMany({ where: { date: { in: dates } } }),
-      db.holiday.findMany({ where: { date: { in: dates } } }),
-    ]);
+    // Build bookings query
+    const bookingConditions: string[] = [`date IN (${datePlaceholders})`];
+    const bookingParams: unknown[] = [...dates];
+    if (teacherId) { bookingConditions.push('teacher_id = ?'); bookingParams.push(teacherId); }
+    const bookings = all(`SELECT * FROM bookings WHERE ${bookingConditions.join(' AND ')} ORDER BY date ASC, start_time ASC`, bookingParams);
+
+    // Available slots
+    const slotConditions: string[] = ['1=1'];
+    const slotParams: unknown[] = [];
+    if (teacherId) { slotConditions.push('teacher_id = ?'); slotParams.push(teacherId); }
+    const availableSlots = all(`SELECT * FROM available_slots WHERE ${slotConditions.join(' AND ')}`, slotParams);
+
+    // Blocked slots
+    const bsConditions: string[] = [`date IN (${datePlaceholders})`];
+    const bsParams: unknown[] = [...dates];
+    if (teacherId) { bsConditions.push('teacher_id = ?'); bsParams.push(teacherId); }
+    const blockedSlots = all(`SELECT * FROM blocked_slots WHERE ${bsConditions.join(' AND ')}`, bsParams);
+
+    const nonClassDays = all(`SELECT * FROM non_class_days WHERE date IN (${datePlaceholders})`, dates);
+    const hols = all(`SELECT * FROM holidays WHERE date IN (${datePlaceholders})`, dates);
 
     // Get teacher names
     const tIds = [...new Set([
-      ...(bookings as Row[]).map(b => b.teacher_id as string),
-      ...(availableSlots as Row[]).map(s => s.teacher_id as string),
+      ...bookings.map(b => b.teacher_id as string),
+      ...availableSlots.map(s => s.teacher_id as string),
     ])];
-    const teachers = tIds.length ? await db.teacher.findMany({ where: { id: { in: tIds } } }) : [];
-    const tMap = new Map((teachers as Row[]).map(t => [t.id as string, t.name as string]));
+    const tMap = new Map<string, string>();
+    if (tIds.length) {
+      const placeholders = tIds.map(() => '?').join(',');
+      const teachers = all(`SELECT id, name FROM teachers WHERE id IN (${placeholders})`, tIds);
+      teachers.forEach(t => tMap.set(t.id as string, t.name as string));
+    }
 
     const dayNames = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 
     if (formatType === 'csv') {
-      const bookedKeys = new Set((bookings as Row[]).map(b => `${b.date}-${b.start_time}-${b.teacher_id}`));
-      const blockedKeys = new Set((blockedSlots as Row[]).map(b => `${b.date}-${b.start_time}-${b.teacher_id}`));
-      const nonClassSet = new Set((nonClassDays as Row[]).map(n => n.date as string));
-      const holidaySet = new Set((holidays as Row[]).map(h => h.date as string));
+      const bookedKeys = new Set(bookings.map(b => `${b.date}-${b.start_time}-${b.teacher_id}`));
+      const blockedKeys = new Set(blockedSlots.map(b => `${b.date}-${b.start_time}-${b.teacher_id}`));
+      const nonClassSet = new Set(nonClassDays.map(n => n.date as string));
+      const holidaySet = new Set(hols.map(h => h.date as string));
 
       const rows: string[] = [];
-      for (const b of bookings as Row[]) {
+      for (const b of bookings) {
         const d = new Date((b.date as string) + 'T12:00:00');
         rows.push(`${b.date},${dayNames[d.getDay()]},${b.start_time}-${b.end_time},${tMap.get(b.teacher_id as string) || ''},${b.student_name},Agendado`);
       }
@@ -63,7 +77,7 @@ export async function GET(request: NextRequest) {
         const dayName = dayNames[dow];
         const isNCD = nonClassSet.has(date);
         const isHol = holidaySet.has(date);
-        for (const slot of (availableSlots as Row[]).filter(s => s.day_of_week === dow)) {
+        for (const slot of availableSlots.filter(s => s.day_of_week === dow)) {
           const key = `${date}-${slot.start_time}-${slot.teacher_id}`;
           if (bookedKeys.has(key)) continue;
           const tName = tMap.get(slot.teacher_id as string) || '';

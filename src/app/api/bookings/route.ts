@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { db, all, get, run } from '@/lib/db';
 import { addDays, format, parse } from 'date-fns';
-
-type Row = Record<string, unknown>;
+import { randomUUID } from 'crypto';
 
 export async function GET(request: NextRequest) {
   try {
@@ -13,28 +12,34 @@ export async function GET(request: NextRequest) {
     const weekStartStr = searchParams.get('weekStart');
     const status = searchParams.get('status');
 
-    const where: Row = {};
-    if (teacherId) where['teacher_id'] = teacherId;
-    if (studentProfileId) where['student_profile_id'] = studentProfileId;
-    if (date) where['date'] = date;
-    if (status) where['status'] = status;
+    const conditions: string[] = ['1=1'];
+    const params: unknown[] = [];
+
+    if (teacherId) { conditions.push('b.teacher_id = ?'); params.push(teacherId); }
+    if (studentProfileId) { conditions.push('b.student_profile_id = ?'); params.push(studentProfileId); }
+    if (date) { conditions.push('b.date = ?'); params.push(date); }
+    if (status) { conditions.push('b.status = ?'); params.push(status); }
 
     if (weekStartStr) {
       const weekStart = parse(weekStartStr, 'yyyy-MM-dd', new Date());
       const weekDates: string[] = [];
       for (let i = 0; i < 7; i++) weekDates.push(format(addDays(weekStart, i), 'yyyy-MM-dd'));
-      where['date'] = { in: weekDates };
+      const placeholders = weekDates.map(() => '?').join(',');
+      conditions.push(`b.date IN (${placeholders})`);
+      params.push(...weekDates);
     }
 
-    const bookings = await db.booking.findMany({
-      where,
-      orderBy: [{ date: 'asc' }, { start_time: 'asc' }],
-    });
+    const bookings = all(`SELECT b.* FROM bookings b WHERE ${conditions.join(' AND ')} ORDER BY b.date ASC, b.start_time ASC`, params);
 
-    const tIds = [...new Set((bookings as Row[]).map(b => b['teacher_id'] as string))];
-    const teachers = tIds.length ? await db.teacher.findMany({ where: { id: { in: tIds } } }) : [];
-    const tMap = new Map((teachers as Row[]).map(t => [t['id'], t]));
-    const enriched = (bookings as Row[]).map(b => ({ ...b, teacher: tMap.get(b['teacher_id'] as string) || null }));
+    // Enrich with teacher info
+    const tIds = [...new Set(bookings.map(b => b.teacher_id as string))];
+    const tMap = new Map<string, Record<string, unknown>>();
+    if (tIds.length) {
+      const placeholders = tIds.map(() => '?').join(',');
+      const teachers = all(`SELECT * FROM teachers WHERE id IN (${placeholders})`, tIds);
+      teachers.forEach(t => tMap.set(t.id as string, t));
+    }
+    const enriched = bookings.map(b => ({ ...b, teacher: tMap.get(b.teacher_id as string) || null }));
 
     return NextResponse.json({ bookings: enriched });
   } catch (error) {
@@ -45,8 +50,8 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json() as { teacherId: string; studentName: string; studentEmail?: string; date: string; startTime: string; endTime: string; studentProfileId?: string };
-    const { teacherId, studentName, studentEmail, date, startTime, endTime, studentProfileId } = body;
+    const body = await request.json() as { teacherId: string; studentName: string; studentEmail?: string; date: string; startTime: string; endTime: string; studentProfileId?: string; notes?: string };
+    const { teacherId, studentName, studentEmail, date, startTime, endTime, studentProfileId, notes } = body;
 
     if (!teacherId || !studentName || !date || !startTime || !endTime) {
       return NextResponse.json({ error: 'Preencha todos os campos obrigatórios' }, { status: 400 });
@@ -54,15 +59,14 @@ export async function POST(request: NextRequest) {
 
     const dayOfWeek = new Date(date + 'T12:00:00').getDay();
 
-    const [avail, existing, blocked, nonClass, holiday, recess, blockedPeriod] = await Promise.all([
-      db.availableSlot.findFirst({ where: { teacher_id: teacherId, day_of_week: dayOfWeek, start_time: startTime, end_time: endTime } }),
-      db.booking.findFirst({ where: { teacher_id: teacherId, date, start_time: startTime, status: 'confirmed' } }),
-      db.blockedSlot.findFirst({ where: { teacher_id: teacherId, date, start_time: startTime } }),
-      db.nonClassDay.findFirst({ where: { date } }),
-      db.holiday.findFirst({ where: { date } }),
-      db.recess.findFirst({ where: { start_date: { lte: date }, end_date: { gte: date } } }),
-      db.blockedPeriod.findFirst({ where: { teacher_id: teacherId, start_date: { lte: date }, end_date: { gte: date } } }),
-    ]);
+    // Check availability
+    const avail = get('SELECT id FROM available_slots WHERE teacher_id = ? AND day_of_week = ? AND start_time = ? AND end_time = ?', [teacherId, dayOfWeek, startTime, endTime]);
+    const existing = get('SELECT id FROM bookings WHERE teacher_id = ? AND date = ? AND start_time = ? AND status = ?', [teacherId, date, startTime, 'confirmed']);
+    const blocked = get('SELECT id FROM blocked_slots WHERE teacher_id = ? AND date = ? AND start_time = ?', [teacherId, date, startTime]);
+    const nonClass = get('SELECT id FROM non_class_days WHERE date = ?', [date]);
+    const holiday = get('SELECT id FROM holidays WHERE date = ?', [date]);
+    const recess = get('SELECT id FROM recesses WHERE start_date <= ? AND end_date >= ?', [date, date]);
+    const blockedPeriod = get('SELECT id FROM blocked_periods WHERE teacher_id = ? AND start_date <= ? AND end_date >= ?', [teacherId, date, date]);
 
     if (!avail) return NextResponse.json({ error: 'Horário não disponível para este professor' }, { status: 400 });
     if (existing) return NextResponse.json({ error: 'Já existe agendamento neste horário' }, { status: 400 });
@@ -72,20 +76,13 @@ export async function POST(request: NextRequest) {
     if (recess) return NextResponse.json({ error: 'Período de recesso' }, { status: 400 });
     if (blockedPeriod) return NextResponse.json({ error: 'Professor indisponível nesta data' }, { status: 400 });
 
-    const booking = await db.booking.create({
-      data: {
-        teacher_id: teacherId,
-        student_name: studentName,
-        student_email: studentEmail || null,
-        student_profile_id: studentProfileId || null,
-        date,
-        day_of_week: dayOfWeek,
-        start_time: startTime,
-        end_time: endTime,
-        status: 'confirmed',
-      },
-    });
+    const id = randomUUID();
+    run(
+      'INSERT INTO bookings (id, teacher_id, student_name, student_email, student_profile_id, date, day_of_week, start_time, end_time, status, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [id, teacherId, studentName, studentEmail || null, studentProfileId || null, date, dayOfWeek, startTime, endTime, 'confirmed', notes || '']
+    );
 
+    const booking = get('SELECT * FROM bookings WHERE id = ?', [id]);
     return NextResponse.json({ booking }, { status: 201 });
   } catch (error) {
     console.error(error);

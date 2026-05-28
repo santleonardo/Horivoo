@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { all, run } from '@/lib/db';
+import { randomUUID } from 'crypto';
 
 export async function GET(request: NextRequest) {
   try {
@@ -7,14 +8,18 @@ export async function GET(request: NextRequest) {
     const year = searchParams.get('year');
     const month = searchParams.get('month');
 
-    const where: Record<string, unknown> = {};
+    const conditions: string[] = ['1=1'];
+    const params: unknown[] = [];
+
     if (year && month) {
-      where.date = { startsWith: `${year}-${month.padStart(2, '0')}` };
+      conditions.push("date LIKE ?");
+      params.push(`${year}-${month.padStart(2, '0')}%`);
     } else if (year) {
-      where.date = { startsWith: year };
+      conditions.push("date LIKE ?");
+      params.push(`${year}%`);
     }
 
-    const holidays = await db.holiday.findMany({ where, orderBy: { date: 'asc' } });
+    const holidays = all(`SELECT * FROM holidays WHERE ${conditions.join(' AND ')} ORDER BY date ASC`, params);
     return NextResponse.json({ holidays });
   } catch (error) {
     console.error('Error fetching holidays:', error);
@@ -31,9 +36,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Preencha todos os campos obrigatórios' }, { status: 400 });
     }
 
-    const holiday = await db.holiday.create({
-      data: { date, name, type, recurring: recurring || false },
-    });
+    const id = randomUUID();
+    run('INSERT INTO holidays (id, date, name, type, recurring) VALUES (?, ?, ?, ?, ?)', [id, date, name, type, recurring ? 1 : 0]);
+    const holiday = { id, date, name, type, recurring: !!recurring };
 
     return NextResponse.json({ holiday }, { status: 201 });
   } catch (error) {

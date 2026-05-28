@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { run } from '@/lib/db';
 
 export async function DELETE(
   request: NextRequest,
@@ -7,7 +7,7 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    await db.nonClassDay.delete({ where: { id } });
+    run('DELETE FROM non_class_days WHERE id = ?', [id]);
     return NextResponse.json({ ok: true });
   } catch (error) {
     console.error('Error deleting non-class day:', error);

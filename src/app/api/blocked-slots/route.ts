@@ -1,17 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
-
-type Row = Record<string, unknown>;
+import { all, run } from '@/lib/db';
+import { randomUUID } from 'crypto';
 
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const teacherId = searchParams.get('teacherId');
     const date = searchParams.get('date');
-    const where: Row = {};
-    if (teacherId) where.teacher_id = teacherId;
-    if (date) where.date = date;
-    const blockedSlots = await db.blockedSlot.findMany({ where, orderBy: [{ date: 'asc' }, { start_time: 'asc' }] });
+
+    const conditions: string[] = ['1=1'];
+    const params: unknown[] = [];
+
+    if (teacherId) { conditions.push('teacher_id = ?'); params.push(teacherId); }
+    if (date) { conditions.push('date = ?'); params.push(date); }
+
+    const blockedSlots = all(`SELECT * FROM blocked_slots WHERE ${conditions.join(' AND ')} ORDER BY date ASC, start_time ASC`, params);
     return NextResponse.json({ blockedSlots });
   } catch (error) {
     console.error(error);
@@ -25,9 +28,9 @@ export async function POST(request: NextRequest) {
     if (!teacherId || !date || !startTime || !endTime) {
       return NextResponse.json({ error: 'Preencha todos os campos obrigatórios' }, { status: 400 });
     }
-    const blockedSlot = await db.blockedSlot.create({
-      data: { teacher_id: teacherId, date, start_time: startTime, end_time: endTime, reason: reason || null },
-    });
+    const id = randomUUID();
+    run('INSERT INTO blocked_slots (id, teacher_id, date, start_time, end_time, reason) VALUES (?, ?, ?, ?, ?, ?)', [id, teacherId, date, startTime, endTime, reason || null]);
+    const blockedSlot = { id, teacher_id: teacherId, date, start_time: startTime, end_time: endTime, reason: reason || null };
     return NextResponse.json({ blockedSlot }, { status: 201 });
   } catch (error) {
     console.error(error);

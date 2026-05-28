@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { run } from '@/lib/db';
 
 export async function DELETE(
   request: NextRequest,
@@ -7,10 +7,7 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    await db.recurringBooking.update({
-      where: { id },
-      data: { active: false },
-    });
+    run('UPDATE recurring_bookings SET active = 0 WHERE id = ?', [id]);
     return NextResponse.json({ ok: true });
   } catch (error) {
     console.error('Error deactivating recurring booking:', error);

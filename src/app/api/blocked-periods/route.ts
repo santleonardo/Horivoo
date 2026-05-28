@@ -1,15 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
-
-type Row = Record<string, unknown>;
+import { all, run } from '@/lib/db';
+import { randomUUID } from 'crypto';
 
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const teacherId = searchParams.get('teacherId');
-    const where: Row = {};
-    if (teacherId) where.teacher_id = teacherId;
-    const blockedPeriods = await db.blockedPeriod.findMany({ where, orderBy: { start_date: 'asc' } });
+
+    const conditions: string[] = ['1=1'];
+    const params: unknown[] = [];
+
+    if (teacherId) { conditions.push('teacher_id = ?'); params.push(teacherId); }
+
+    const blockedPeriods = all(`SELECT * FROM blocked_periods WHERE ${conditions.join(' AND ')} ORDER BY start_date ASC`, params);
     return NextResponse.json({ blockedPeriods });
   } catch (error) {
     console.error(error);
@@ -19,14 +22,14 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json() as Row;
+    const body = await request.json() as Record<string, unknown>;
     const { teacherId, startDate, endDate, reason } = body as { teacherId: string; startDate: string; endDate: string; reason?: string };
     if (!teacherId || !startDate || !endDate) {
       return NextResponse.json({ error: 'Preencha todos os campos obrigatórios' }, { status: 400 });
     }
-    const blockedPeriod = await db.blockedPeriod.create({
-      data: { teacher_id: teacherId, start_date: startDate, end_date: endDate, reason: reason || null },
-    });
+    const id = randomUUID();
+    run('INSERT INTO blocked_periods (id, teacher_id, start_date, end_date, reason) VALUES (?, ?, ?, ?, ?)', [id, teacherId, startDate, endDate, reason || null]);
+    const blockedPeriod = { id, teacher_id: teacherId, start_date: startDate, end_date: endDate, reason: reason || null };
     return NextResponse.json({ blockedPeriod }, { status: 201 });
   } catch (error) {
     console.error(error);
