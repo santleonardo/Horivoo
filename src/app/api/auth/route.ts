@@ -2,6 +2,21 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { verifyPassword, hashPassword, createToken } from '@/lib/auth';
 
+interface AuthUser {
+  id: string;
+  email: string;
+  name: string;
+  password: string;
+  role: string;
+}
+
+interface AuthTeacher {
+  id: string;
+  user_id: string;
+  name: string;
+  email: string;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -22,17 +37,17 @@ export async function POST(request: NextRequest) {
       }
 
       const hashedPassword = hashPassword(password);
-      const user = await db.user.create({
+      const user = (await db.user.create({
         data: { email, name, password: hashedPassword, role },
-      });
+      })) as unknown as AuthUser;
 
       let teacherId: string | undefined;
 
       if (role === 'teacher') {
-        const teacher = await db.teacher.create({
+        const teacher = (await db.teacher.create({
           data: { user_id: user.id, name, email },
-        });
-        teacherId = String(teacher.id);
+        })) as unknown as AuthTeacher;
+        teacherId = teacher.id;
       }
 
       if (role === 'coordinator') {
@@ -42,14 +57,14 @@ export async function POST(request: NextRequest) {
       }
 
       const token = createToken({
-        userId: String(user.id),
+        userId: user.id,
         email: user.email,
         role: user.role,
       });
 
       return NextResponse.json({
         user: {
-          id: String(user.id),
+          id: user.id,
           email: user.email,
           name: user.name,
           role: user.role,
@@ -64,7 +79,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Email e senha são obrigatórios' }, { status: 400 });
     }
 
-    const user = await db.user.findUnique({ where: { email } });
+    const user = (await db.user.findUnique({ where: { email } })) as unknown as AuthUser | null;
     if (!user) {
       return NextResponse.json({ error: 'Usuário não encontrado' }, { status: 404 });
     }
@@ -74,21 +89,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Senha incorreta' }, { status: 401 });
     }
 
-    const teacher = await db.teacher.findUnique({ where: { user_id: String(user.id) } });
+    const teacher = (await db.teacher.findUnique({ where: { user_id: user.id } })) as unknown as AuthTeacher | null;
 
     const token = createToken({
-      userId: String(user.id),
+      userId: user.id,
       email: user.email,
       role: user.role,
     });
 
     return NextResponse.json({
       user: {
-        id: String(user.id),
+        id: user.id,
         email: user.email,
         name: user.name,
         role: user.role,
-        teacherId: teacher ? String(teacher.id) : undefined,
+        teacherId: teacher?.id,
       },
       token,
     });
