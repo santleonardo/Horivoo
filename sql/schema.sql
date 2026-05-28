@@ -76,8 +76,8 @@ CREATE TABLE IF NOT EXISTS bookings (
   start_time          TEXT NOT NULL,
   end_time            TEXT NOT NULL,
   status              TEXT NOT NULL DEFAULT 'confirmed',
+  notes               TEXT,
   recurring_id        TEXT,
-  notes               TEXT DEFAULT '',
   created_at          TIMESTAMPTZ DEFAULT NOW(),
   updated_at          TIMESTAMPTZ DEFAULT NOW()
 );
