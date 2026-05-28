@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { verifyPassword, hashPassword, createToken } from '@/lib/auth';
 
-type Row = Record<string, unknown>;
-
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -26,27 +24,37 @@ export async function POST(request: NextRequest) {
       const hashedPassword = hashPassword(password);
       const user = await db.user.create({
         data: { email, name, password: hashedPassword, role },
-      }) as Row;
+      });
 
-      let teacher_id: string | undefined;
+      let teacherId: string | undefined;
+
       if (role === 'teacher') {
         const teacher = await db.teacher.create({
-          data: { user_id: user.id as string, name, email },
-        }) as Row;
-        teacher_id = teacher.id as string;
-      }
-      if (role === 'coordinator') {
-        await db.coordinator.create({ data: { user_id: user.id as string, name, email } });
+          data: { user_id: user.id, name, email },
+        });
+        teacherId = teacher.id;
       }
 
-      const token = await createToken({
-        userId: user.id as string,
-        email: user.email as string,
-        role: user.role as string,
+      if (role === 'coordinator') {
+        await db.coordinator.create({
+          data: { user_id: user.id, name, email },
+        });
+      }
+
+      const token = createToken({
+        userId: user.id,
+        email: user.email,
+        role: user.role,
       });
 
       return NextResponse.json({
-        user: { id: user.id, email: user.email, name: user.name, role: user.role, ...(teacher_id && { teacherId: teacher_id }) },
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          role: user.role,
+          ...(teacherId && { teacherId }),
+        },
         token,
       }, { status: 201 });
     }
@@ -56,22 +64,32 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Email e senha são obrigatórios' }, { status: 400 });
     }
 
-    const user = await db.user.findUnique({ where: { email } }) as Row | null;
-    if (!user) return NextResponse.json({ error: 'Usuário não encontrado' }, { status: 404 });
+    const user = await db.user.findUnique({ where: { email } });
+    if (!user) {
+      return NextResponse.json({ error: 'Usuário não encontrado' }, { status: 404 });
+    }
 
-    const valid = verifyPassword(password, user.password as string);
-    if (!valid) return NextResponse.json({ error: 'Senha incorreta' }, { status: 401 });
+    const valid = verifyPassword(password, user.password);
+    if (!valid) {
+      return NextResponse.json({ error: 'Senha incorreta' }, { status: 401 });
+    }
 
-    const teacher = await db.teacher.findUnique({ where: { user_id: user.id as string } }) as Row | null;
+    const teacher = await db.teacher.findUnique({ where: { user_id: user.id } });
 
-    const token = await createToken({
-      userId: user.id as string,
-      email: user.email as string,
-      role: user.role as string,
+    const token = createToken({
+      userId: user.id,
+      email: user.email,
+      role: user.role,
     });
 
     return NextResponse.json({
-      user: { id: user.id, email: user.email, name: user.name, role: user.role, teacherId: teacher?.id },
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        teacherId: teacher?.id,
+      },
       token,
     });
   } catch (error) {
