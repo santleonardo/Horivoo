@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
         const teacher = await db.teacher.create({
           data: { user_id: user.id, name, email },
         });
-        teacherId = teacher.id;
+        teacherId = String(teacher.id);
       }
 
       if (role === 'coordinator') {
@@ -42,14 +42,14 @@ export async function POST(request: NextRequest) {
       }
 
       const token = createToken({
-        userId: user.id,
+        userId: String(user.id),
         email: user.email,
         role: user.role,
       });
 
       return NextResponse.json({
         user: {
-          id: user.id,
+          id: String(user.id),
           email: user.email,
           name: user.name,
           role: user.role,
@@ -74,21 +74,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Senha incorreta' }, { status: 401 });
     }
 
-    const teacher = await db.teacher.findUnique({ where: { user_id: user.id } });
+    const teacher = await db.teacher.findUnique({ where: { user_id: String(user.id) } });
 
     const token = createToken({
-      userId: user.id,
+      userId: String(user.id),
       email: user.email,
       role: user.role,
     });
 
     return NextResponse.json({
       user: {
-        id: user.id,
+        id: String(user.id),
         email: user.email,
         name: user.name,
         role: user.role,
-        teacherId: teacher?.id,
+        teacherId: teacher ? String(teacher.id) : undefined,
       },
       token,
     });
