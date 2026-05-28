@@ -1,6 +1,5 @@
 /**
  * db.ts — Cliente Supabase (PostgREST)
- * UUID keys — all IDs returned as strings from Supabase
  */
 
 const SUPABASE_URL = (process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace(/\/$/, '');
@@ -9,8 +8,6 @@ const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_P
 if (!SUPABASE_URL || !SUPABASE_KEY) {
   console.warn('[db] NEXT_PUBLIC_SUPABASE_URL ou SUPABASE_SERVICE_ROLE_KEY não definidas.');
 }
-
-// ── tipos internos ────────────────────────────────────────────────
 
 type Row = Record<string, unknown>;
 type OrderDir = 'asc' | 'desc';
@@ -23,8 +20,6 @@ interface FindManyOptions {
   select?: string[];
 }
 
-// ── helper de fetch ───────────────────────────────────────────────
-
 async function sbFetch<T = unknown>(
   path: string,
   options: RequestInit = {}
@@ -34,9 +29,6 @@ async function sbFetch<T = unknown>(
     'apikey': SUPABASE_KEY,
     'Authorization': `Bearer ${SUPABASE_KEY}`,
     'Content-Type': 'application/json',
-    // BUG FIX 1: 'return=representation' is required for POST/PATCH to
-    // return the created/updated row. Without it Supabase returns 201/204
-    // with an empty body, rows[0] is undefined, and user.id throws → 500.
     'Prefer': 'return=representation',
   };
 
@@ -53,12 +45,9 @@ async function sbFetch<T = unknown>(
   }
 
   const text = await res.text();
-  // BUG FIX 2: empty body (204 No Content) must return [] not crash JSON.parse
   if (!text || text === 'null') return [] as unknown as T;
   return JSON.parse(text) as T;
 }
-
-// ── builder de query string ───────────────────────────────────────
 
 function buildQuery(table: string, opts: FindManyOptions = {}): string {
   const params: string[] = [];
@@ -69,7 +58,6 @@ function buildQuery(table: string, opts: FindManyOptions = {}): string {
   if (opts.where) {
     for (const [key, val] of Object.entries(opts.where)) {
       if (val === null || val === undefined) continue;
-
       if (typeof val === 'object' && !Array.isArray(val)) {
         const op = val as Record<string, unknown>;
         if (op.in)         params.push(`${key}=in.(${(op.in as unknown[]).join(',')})`);
@@ -94,14 +82,10 @@ function buildQuery(table: string, opts: FindManyOptions = {}): string {
     params.push(`order=${orderStr}`);
   }
 
-  if (opts.take) {
-    params.push(`limit=${opts.take}`);
-  }
+  if (opts.take) params.push(`limit=${opts.take}`);
 
   return `${table}?${params.join('&')}`;
 }
-
-// ── camada de acesso por tabela ───────────────────────────────────
 
 function makeTable<T extends Row>(table: string) {
   return {
@@ -120,14 +104,12 @@ function makeTable<T extends Row>(table: string) {
     },
 
     async create(opts: { data: Row }): Promise<T> {
-      // BUG FIX 3: must include ?select=* so Supabase returns the created row.
-      // Without it the Prefer: return=representation header is ignored on some
-      // Supabase versions and the response body is empty → rows[0] undefined.
+      // ?select=* forces Supabase to return the created row
       const rows = await sbFetch<T[]>(`${table}?select=*`, {
         method: 'POST',
         body: JSON.stringify(opts.data),
       });
-      if (!rows[0]) throw new Error(`[db] create(${table}) returned no row — check RLS and column constraints`);
+      if (!rows[0]) throw new Error(`[db] create(${table}) sem retorno — verifique RLS e constraints`);
       return rows[0];
     },
 
@@ -178,8 +160,6 @@ function makeTable<T extends Row>(table: string) {
     },
   };
 }
-
-// ── cliente db ────────────────────────────────────────────────────
 
 export const db = {
   user:             makeTable('users'),
