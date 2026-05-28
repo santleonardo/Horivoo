@@ -1,14 +1,13 @@
 /**
- * db.ts — Cliente Supabase substituindo o Prisma
- * Usa fetch direto para a REST API do Supabase.
- * Sem dependências extras — funciona no Vercel sem build step especial.
+ * db.ts — Cliente Supabase (PostgREST)
+ * UUID keys — all IDs returned as strings from Supabase
  */
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const SUPABASE_URL = (process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace(/\/$/, '');
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
 if (!SUPABASE_URL || !SUPABASE_KEY) {
-  console.warn('[db] Variáveis NEXT_PUBLIC_SUPABASE_URL ou SUPABASE_SERVICE_ROLE_KEY não definidas.');
+  console.warn('[db] NEXT_PUBLIC_SUPABASE_URL ou SUPABASE_SERVICE_ROLE_KEY não definidas.');
 }
 
 // ── tipos internos ────────────────────────────────────────────────
@@ -35,18 +34,28 @@ async function sbFetch<T = unknown>(
     'apikey': SUPABASE_KEY,
     'Authorization': `Bearer ${SUPABASE_KEY}`,
     'Content-Type': 'application/json',
+    // BUG FIX 1: 'return=representation' is required for POST/PATCH to
+    // return the created/updated row. Without it Supabase returns 201/204
+    // with an empty body, rows[0] is undefined, and user.id throws → 500.
     'Prefer': 'return=representation',
   };
 
-  const res = await fetch(url, { ...options, headers: { ...headers, ...(options.headers as Record<string, string> || {}) } });
+  const res = await fetch(url, {
+    ...options,
+    headers: { ...headers, ...(options.headers as Record<string, string> || {}) },
+  });
 
   if (!res.ok) {
-    const err = await res.json().catch(() => ({})) as { message?: string };
-    throw new Error(err.message || `Supabase error ${res.status}`);
+    const err = await res.json().catch(() => ({})) as { message?: string; hint?: string; details?: string };
+    const msg = err.message || err.details || err.hint || `Supabase error ${res.status}`;
+    console.error(`[db] ${options.method || 'GET'} ${url} → ${res.status}:`, msg);
+    throw new Error(msg);
   }
 
   const text = await res.text();
-  return (text ? JSON.parse(text) : []) as T;
+  // BUG FIX 2: empty body (204 No Content) must return [] not crash JSON.parse
+  if (!text || text === 'null') return [] as unknown as T;
+  return JSON.parse(text) as T;
 }
 
 // ── builder de query string ───────────────────────────────────────
@@ -54,11 +63,9 @@ async function sbFetch<T = unknown>(
 function buildQuery(table: string, opts: FindManyOptions = {}): string {
   const params: string[] = [];
 
-  // select
   const selectFields = opts.select?.join(',') || '*';
   params.push(`select=${selectFields}`);
 
-  // where
   if (opts.where) {
     for (const [key, val] of Object.entries(opts.where)) {
       if (val === null || val === undefined) continue;
@@ -78,7 +85,6 @@ function buildQuery(table: string, opts: FindManyOptions = {}): string {
     }
   }
 
-  // orderBy
   if (opts.orderBy) {
     const orders = Array.isArray(opts.orderBy) ? opts.orderBy : [opts.orderBy];
     const orderStr = orders.map(o => {
@@ -88,7 +94,6 @@ function buildQuery(table: string, opts: FindManyOptions = {}): string {
     params.push(`order=${orderStr}`);
   }
 
-  // take / limit
   if (opts.take) {
     params.push(`limit=${opts.take}`);
   }
@@ -115,10 +120,14 @@ function makeTable<T extends Row>(table: string) {
     },
 
     async create(opts: { data: Row }): Promise<T> {
-      const rows = await sbFetch<T[]>(table, {
+      // BUG FIX 3: must include ?select=* so Supabase returns the created row.
+      // Without it the Prefer: return=representation header is ignored on some
+      // Supabase versions and the response body is empty → rows[0] undefined.
+      const rows = await sbFetch<T[]>(`${table}?select=*`, {
         method: 'POST',
         body: JSON.stringify(opts.data),
       });
+      if (!rows[0]) throw new Error(`[db] create(${table}) returned no row — check RLS and column constraints`);
       return rows[0];
     },
 
@@ -126,7 +135,7 @@ function makeTable<T extends Row>(table: string) {
       const params = Object.entries(opts.where)
         .map(([k, v]) => `${k}=eq.${v}`)
         .join('&');
-      const rows = await sbFetch<T[]>(`${table}?${params}`, {
+      const rows = await sbFetch<T[]>(`${table}?${params}&select=*`, {
         method: 'PATCH',
         body: JSON.stringify(opts.data),
       });
@@ -148,7 +157,7 @@ function makeTable<T extends Row>(table: string) {
           if (v === null || v === undefined) continue;
           if (typeof v === 'object' && !Array.isArray(v)) {
             const op = v as Record<string, unknown>;
-            if (op.in) params.set(k, `in.(${(op.in as unknown[]).join(',')})`);
+            if (op.in)  params.set(k, `in.(${(op.in as unknown[]).join(',')})`);
             if (op.gte) params.set(k, `gte.${op.gte}`);
           } else {
             params.set(k, `eq.${v}`);
@@ -170,7 +179,7 @@ function makeTable<T extends Row>(table: string) {
   };
 }
 
-// ── cliente db (mesma interface do Prisma) ────────────────────────
+// ── cliente db ────────────────────────────────────────────────────
 
 export const db = {
   user:             makeTable('users'),
