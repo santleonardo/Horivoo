@@ -6,7 +6,6 @@ import { WeekGrid, type SlotInfo, type DaySchedule } from './WeekGrid';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -16,7 +15,6 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { format, startOfWeek } from 'date-fns';
 import { toast } from 'sonner';
-import { BookOpen } from 'lucide-react';
 
 const DAY_NAMES = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 
@@ -41,7 +39,6 @@ export function CoordinatorPanel() {
   const [editEndTime, setEditEndTime] = useState('');
   const [editStudentName, setEditStudentName] = useState('');
   const [editStudentEmail, setEditStudentEmail] = useState('');
-  const [editNotes, setEditNotes] = useState('');
   const [editMode, setEditMode] = useState<'book' | 'block' | 'cancel'>('book');
   const [editBookingId, setEditBookingId] = useState('');
 
@@ -126,7 +123,6 @@ export function CoordinatorPanel() {
     setEditTeacherId(teacherId === '__all__' ? '' : teacherId);
     setEditStudentName('');
     setEditStudentEmail('');
-    setEditNotes('');
 
     if (slot.status === 'booked' && slot.booking) {
       setEditMode('cancel');
@@ -183,7 +179,6 @@ export function CoordinatorPanel() {
             date: editDate,
             startTime: editStartTime,
             endTime: editEndTime,
-            notes: editNotes || '',
           }),
         });
         toast.success('Agendamento criado!');
@@ -474,13 +469,6 @@ export function CoordinatorPanel() {
                 <div className="space-y-1">
                   <Label className="text-xs font-semibold">E-mail do aluno (opcional)</Label>
                   <Input type="email" value={editStudentEmail} onChange={e => setEditStudentEmail(e.target.value)} placeholder="ana@email.com" />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs font-semibold flex items-center gap-1">
-                    <BookOpen className="size-3" />
-                    Matéria / Livro / Observações
-                  </Label>
-                  <Textarea value={editNotes} onChange={e => setEditNotes(e.target.value)} placeholder="Ex: Livro 1 - Teens, Aula de inglês..." rows={2} className="resize-none" />
                 </div>
               </>
             )}

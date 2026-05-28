@@ -5,7 +5,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import {
   Select,
@@ -14,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Calendar, Clock, Check, AlertCircle, User, Loader2, BookOpen } from 'lucide-react';
+import { Calendar, Clock, Check, AlertCircle, User, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { format, addDays, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -45,7 +44,6 @@ export function AgendaPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [availableSlots, setAvailableSlots] = useState<{ startTime: string; endTime: string; available: boolean; reason?: string }[]>([]);
-  const [bookingNotes, setBookingNotes] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
 
   const loadData = useCallback(async () => {
@@ -176,7 +174,6 @@ export function AgendaPage() {
           date: selectedDate,
           startTime: selectedSlot.startTime,
           endTime: selectedSlot.endTime,
-          notes: bookingNotes || '',
         }),
       });
 
@@ -389,7 +386,7 @@ export function AgendaPage() {
             )}
 
             {selectedSlot && (
-              <div className="mt-4 p-4 bg-emerald-50 rounded-lg border border-emerald-200 space-y-3">
+              <div className="mt-4 p-4 bg-emerald-50 rounded-lg border border-emerald-200">
                 <div className="flex items-center justify-between flex-wrap gap-4">
                   <div className="flex items-center gap-3">
                     <Check className="size-5 text-emerald-600" />
@@ -402,21 +399,6 @@ export function AgendaPage() {
                       </p>
                     </div>
                   </div>
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs font-semibold flex items-center gap-1 text-emerald-700">
-                    <BookOpen className="size-3" />
-                    Matéria / Livro / Observações
-                  </Label>
-                  <Textarea
-                    placeholder="Ex: Livro 1 - Teens, Aula de inglês, Capítulo 3..."
-                    value={bookingNotes}
-                    onChange={(e) => setBookingNotes(e.target.value)}
-                    rows={2}
-                    className="resize-none text-sm"
-                  />
-                </div>
-                <div className="flex justify-end">
                   <Button
                     onClick={handleBooking}
                     disabled={!selectedStudent || submitting}

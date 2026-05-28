@@ -25,7 +25,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { ClipboardList, MoreHorizontal, CheckCircle, XCircle, Clock, Filter, BookOpen } from 'lucide-react';
+import { ClipboardList, MoreHorizontal, CheckCircle, XCircle, Clock, Filter } from 'lucide-react';
 import { toast } from 'sonner';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -37,7 +37,6 @@ interface Booking {
   endTime: string;
   studentName: string;
   studentEmail?: string;
-  notes?: string;
   status: string;
   teacher: { name: string };
   studentProfile?: { name: string } | null;
@@ -151,7 +150,6 @@ export function AgendamentosPage() {
                   <TableHead>Horário</TableHead>
                   <TableHead>Professor</TableHead>
                   <TableHead>Aluno</TableHead>
-                  <TableHead>Matéria/Livro</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="w-[80px]">Ações</TableHead>
                 </TableRow>
@@ -175,16 +173,6 @@ export function AgendamentosPage() {
                       </TableCell>
                       <TableCell>{booking.teacher?.name || '-'}</TableCell>
                       <TableCell>{booking.studentName}</TableCell>
-                      <TableCell>
-                        {booking.notes ? (
-                          <span className="text-xs flex items-center gap-1">
-                            <BookOpen className="size-3 text-muted-foreground" />
-                            {booking.notes}
-                          </span>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">—</span>
-                        )}
-                      </TableCell>
                       <TableCell>
                         <Badge className={config.color}>
                           <StatusIcon className="size-3 mr-1" />

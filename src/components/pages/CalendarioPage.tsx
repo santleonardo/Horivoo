@@ -13,15 +13,19 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import {
   CalendarDays,
   ChevronLeft,
@@ -29,9 +33,6 @@ import {
   PartyPopper,
   Clock,
   User,
-  BookOpen,
-  Plus,
-  Loader2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -70,21 +71,14 @@ interface Booking {
   endTime: string;
   studentName: string;
   teacherName?: string;
-  notes?: string;
   status: string;
   teacher?: { name: string };
-}
-
-interface AvailableSlot {
-  dayOfWeek: number;
-  startTime: string;
-  endTime: string;
 }
 
 interface Teacher {
   id: string;
   name: string;
-  availableSlots: AvailableSlot[];
+  availableSlots: { dayOfWeek: number }[];
 }
 
 interface DayDetail {
@@ -96,13 +90,6 @@ interface DayDetail {
 }
 
 const weekDays = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
-
-const timeOptions = [
-  '07:00', '07:30', '08:00', '08:30', '09:00', '09:30', '10:00', '10:30',
-  '11:00', '11:30', '12:00', '12:30', '13:00', '13:30', '14:00', '14:30',
-  '15:00', '15:30', '16:00', '16:30', '17:00', '17:30', '18:00', '18:30',
-  '19:00', '19:30', '20:00', '20:30', '21:00',
-];
 
 export function CalendarioPage() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
@@ -116,20 +103,6 @@ export function CalendarioPage() {
   const [addHolidayOpen, setAddHolidayOpen] = useState(false);
   const [holidayForm, setHolidayForm] = useState({ date: '', name: '', type: 'nacional', recurring: false });
 
-  // Booking dialog state
-  const [bookingOpen, setBookingOpen] = useState(false);
-  const [bookingDate, setBookingDate] = useState('');
-  const [bookingTeacherId, setBookingTeacherId] = useState('');
-  const [bookingStartTime, setBookingStartTime] = useState('');
-  const [bookingEndTime, setBookingEndTime] = useState('');
-  const [bookingStudentName, setBookingStudentName] = useState('');
-  const [bookingStudentEmail, setBookingStudentEmail] = useState('');
-  const [bookingNotes, setBookingNotes] = useState('');
-  const [bookingLoading, setBookingLoading] = useState(false);
-
-  // Available slots for selected teacher on selected day
-  const [teacherSlotsForDay, setTeacherSlotsForDay] = useState<AvailableSlot[]>([]);
-
   useEffect(() => {
     Promise.all([
       fetch('/api/holidays').then((r) => r.json()),
@@ -137,38 +110,14 @@ export function CalendarioPage() {
       fetch('/api/calendar').then((r) => r.json()),
     ])
       .then(([hData, rData, cData]) => {
-        setHolidays(Array.isArray(hData?.holidays) ? hData.holidays : []);
-        setRecesses(Array.isArray(rData?.recesses) ? rData.recesses : []);
-        setBookings(Array.isArray(cData?.bookings) ? cData.bookings : []);
-        setTeachers(
-          Array.isArray(cData?.teachers)
-            ? cData.teachers.map((t: Teacher) => ({
-                ...t,
-                availableSlots: Array.isArray(t?.availableSlots) ? t.availableSlots : [],
-              }))
-            : []
-        );
+        setHolidays(hData.holidays || []);
+        setRecesses(rData.recesses || []);
+        setBookings(cData.bookings || []);
+        setTeachers(cData.teachers || []);
         setLoading(false);
       })
       .catch(() => setLoading(false));
   }, []);
-
-  const reloadData = async () => {
-    try {
-      const cData = await fetch('/api/calendar').then((r) => r.json());
-      setBookings(Array.isArray(cData?.bookings) ? cData.bookings : []);
-      setTeachers(
-        Array.isArray(cData?.teachers)
-          ? cData.teachers.map((t: Teacher) => ({
-              ...t,
-              availableSlots: Array.isArray(t?.availableSlots) ? t.availableSlots : [],
-            }))
-          : []
-      );
-    } catch {
-      // ignore
-    }
-  };
 
   const monthStart = startOfMonth(currentMonth);
   const monthEnd = endOfMonth(currentMonth);
@@ -186,8 +135,8 @@ export function CalendarioPage() {
       (r) => dateStr >= r.startDate && dateStr <= r.endDate
     );
     const dow = getDay(date);
-    const hasAvailableSlots = Array.isArray(teachers) && teachers.some((t) =>
-      Array.isArray(t?.availableSlots) && t.availableSlots.some((s) => s?.dayOfWeek === dow)
+    const hasAvailableSlots = teachers.some((t) =>
+      t.availableSlots.some((s) => s.dayOfWeek === dow)
     );
 
     return {
@@ -234,114 +183,7 @@ export function CalendarioPage() {
     }
   };
 
-  // ---- Booking Dialog Logic ----
-
-  const openBookingDialog = (dateStr: string) => {
-    setBookingDate(dateStr);
-    setBookingTeacherId('');
-    setBookingStartTime('');
-    setBookingEndTime('');
-    setBookingStudentName('');
-    setBookingStudentEmail('');
-    setBookingNotes('');
-    setTeacherSlotsForDay([]);
-    setBookingOpen(true);
-  };
-
-  // When teacher changes, update available slots for that day
-  useEffect(() => {
-    if (!bookingTeacherId || !bookingDate) {
-      setTeacherSlotsForDay([]);
-      return;
-    }
-    const teacher = teachers.find((t) => t.id === bookingTeacherId);
-    if (!teacher) {
-      setTeacherSlotsForDay([]);
-      return;
-    }
-    const dow = new Date(bookingDate + 'T12:00:00').getDay();
-    const slots = (teacher.availableSlots || []).filter((s) => s.dayOfWeek === dow);
-    setTeacherSlotsForDay(slots);
-    // Reset time if current selection not in slots
-    if (slots.length > 0) {
-      const hasMatch = slots.some((s) => s.startTime === bookingStartTime && s.endTime === bookingEndTime);
-      if (!hasMatch) {
-        setBookingStartTime(slots[0].startTime);
-        setBookingEndTime(slots[0].endTime);
-      }
-    } else {
-      setBookingStartTime('');
-      setBookingEndTime('');
-    }
-  }, [bookingTeacherId, bookingDate, teachers]);
-
-  const handleCreateBooking = async () => {
-    if (!bookingTeacherId || !bookingStudentName || !bookingDate || !bookingStartTime || !bookingEndTime) {
-      toast.error('Preencha todos os campos obrigatórios');
-      return;
-    }
-    setBookingLoading(true);
-    try {
-      const res = await fetch('/api/bookings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          teacherId: bookingTeacherId,
-          studentName: bookingStudentName,
-          studentEmail: bookingStudentEmail || null,
-          date: bookingDate,
-          startTime: bookingStartTime,
-          endTime: bookingEndTime,
-          notes: bookingNotes || '',
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        toast.error(data.error || 'Erro ao agendar');
-        return;
-      }
-      toast.success('Agendamento realizado com sucesso!');
-      setBookingOpen(false);
-      reloadData();
-      // Update selectedDay bookings
-      if (selectedDay) {
-        setSelectedDay({
-          ...selectedDay,
-          bookings: [...selectedDay.bookings, {
-            id: data.booking?.id || '',
-            date: bookingDate,
-            startTime: bookingStartTime,
-            endTime: bookingEndTime,
-            studentName: bookingStudentName,
-            notes: bookingNotes,
-            status: 'confirmed',
-            teacher: teachers.find((t) => t.id === bookingTeacherId) as any,
-          }],
-        });
-      }
-    } catch {
-      toast.error('Erro ao agendar');
-    } finally {
-      setBookingLoading(false);
-    }
-  };
-
   const monthLabel = format(currentMonth, "MMMM 'de' yyyy", { locale: ptBR });
-
-  // Get unique slot options for the time selectors
-  const startTimeOptions = useMemo(() => {
-    const starts = new Set(teacherSlotsForDay.map((s) => s.startTime));
-    if (starts.size === 0) return timeOptions;
-    return [...starts].sort();
-  }, [teacherSlotsForDay]);
-
-  const endTimeOptions = useMemo(() => {
-    // Show end times that correspond to slots starting at bookingStartTime
-    const matching = teacherSlotsForDay.filter((s) => s.startTime === bookingStartTime);
-    if (matching.length > 0) return matching.map((s) => s.endTime).sort();
-    // Fallback: show all times after start
-    return timeOptions.filter((t) => t > (bookingStartTime || '00:00'));
-  }, [teacherSlotsForDay, bookingStartTime]);
 
   if (loading) {
     return (
@@ -362,28 +204,13 @@ export function CalendarioPage() {
           <h1 className="text-2xl font-bold text-foreground">Calendário</h1>
           <p className="text-muted-foreground">Visão mensal de horários e eventos</p>
         </div>
-        <div className="flex gap-2">
-          <Button
-            onClick={() => {
-              if (selectedDay) {
-                openBookingDialog(selectedDay.date);
-              } else {
-                openBookingDialog(format(new Date(), 'yyyy-MM-dd'));
-              }
-            }}
-            className="bg-emerald-600 hover:bg-emerald-700"
-          >
-            <Plus className="size-4 mr-2" />
-            Novo Agendamento
-          </Button>
-          <Button
-            onClick={() => setAddHolidayOpen(true)}
-            variant="outline"
-          >
-            <PartyPopper className="size-4 mr-2" />
-            Feriado
-          </Button>
-        </div>
+        <Button
+          onClick={() => setAddHolidayOpen(true)}
+          className="bg-emerald-600 hover:bg-emerald-700"
+        >
+          <PartyPopper className="size-4 mr-2" />
+          Adicionar Feriado
+        </Button>
       </div>
 
       {/* Legend */}
@@ -517,52 +344,19 @@ export function CalendarioPage() {
 
               {/* Bookings */}
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label>Agendamentos ({selectedDay.bookings.length})</Label>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-7 text-xs"
-                    onClick={() => {
-                      setDayDetailOpen(false);
-                      openBookingDialog(selectedDay.date);
-                    }}
-                  >
-                    <Plus className="size-3 mr-1" />
-                    Agendar
-                  </Button>
-                </div>
+                <Label>Agendamentos ({selectedDay.bookings.length})</Label>
                 {selectedDay.bookings.length === 0 ? (
-                  <div className="text-center py-4">
-                    <p className="text-sm text-muted-foreground mb-2">Nenhum agendamento nesta data</p>
-                    <Button
-                      size="sm"
-                      className="bg-emerald-600 hover:bg-emerald-700"
-                      onClick={() => {
-                        setDayDetailOpen(false);
-                        openBookingDialog(selectedDay.date);
-                      }}
-                    >
-                      <Plus className="size-3 mr-1" />
-                      Criar Agendamento
-                    </Button>
-                  </div>
+                  <p className="text-sm text-muted-foreground">Nenhum agendamento nesta data</p>
                 ) : (
                   selectedDay.bookings.map((b) => (
-                    <div key={b.id} className="flex items-start gap-3 p-3 rounded bg-muted/50 text-sm border">
-                      <Clock className="size-4 text-emerald-500 shrink-0 mt-0.5" />
-                      <div className="flex-1 min-w-0">
+                    <div key={b.id} className="flex items-center gap-3 p-2 rounded bg-muted/50 text-sm">
+                      <Clock className="size-4 text-emerald-500 shrink-0" />
+                      <div className="flex-1">
                         <p className="font-medium">{b.startTime} - {b.endTime}</p>
                         <p className="text-xs text-muted-foreground">
                           <User className="size-3 inline mr-1" />
                           {b.studentName} • {b.teacher?.name || 'Professor'}
                         </p>
-                        {b.notes && (
-                          <p className="text-xs text-muted-foreground mt-1">
-                            <BookOpen className="size-3 inline mr-1" />
-                            {b.notes}
-                          </p>
-                        )}
                       </div>
                       <Badge
                         variant="secondary"
@@ -582,210 +376,6 @@ export function CalendarioPage() {
               </div>
             </div>
           )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Booking Dialog */}
-      <Dialog open={bookingOpen} onOpenChange={setBookingOpen}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <CalendarDays className="size-5 text-emerald-600" />
-              Agendar Horário
-            </DialogTitle>
-            <DialogDescription>
-              {bookingDate && format(parseISO(bookingDate), "dd 'de' MMMM 'de' yyyy", { locale: ptBR })}
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            {/* Date */}
-            <div className="space-y-2">
-              <Label className="text-sm font-semibold">Data *</Label>
-              <Input
-                type="date"
-                value={bookingDate}
-                onChange={(e) => setBookingDate(e.target.value)}
-              />
-            </div>
-
-            {/* Teacher */}
-            <div className="space-y-2">
-              <Label className="text-sm font-semibold">Professor *</Label>
-              <Select value={bookingTeacherId} onValueChange={setBookingTeacherId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione o professor" />
-                </SelectTrigger>
-                <SelectContent>
-                  {teachers.map((t) => (
-                    <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Time selection */}
-            {bookingTeacherId && (
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-2">
-                  <Label className="text-sm font-semibold">Horário de Início *</Label>
-                  {teacherSlotsForDay.length > 0 ? (
-                    <Select value={bookingStartTime} onValueChange={(v) => {
-                      setBookingStartTime(v);
-                      // Auto-set end time to matching slot
-                      const match = teacherSlotsForDay.find((s) => s.startTime === v);
-                      if (match) setBookingEndTime(match.endTime);
-                    }}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Início" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {startTimeOptions.map((t) => (
-                          <SelectItem key={t} value={t}>{t}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    <Select value={bookingStartTime} onValueChange={setBookingStartTime}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Início" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {timeOptions.map((t) => (
-                          <SelectItem key={t} value={t}>{t}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-sm font-semibold">Horário de Fim *</Label>
-                  {teacherSlotsForDay.length > 0 ? (
-                    <Select value={bookingEndTime} onValueChange={setBookingEndTime}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Fim" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {endTimeOptions.map((t) => (
-                          <SelectItem key={t} value={t}>{t}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    <Select value={bookingEndTime} onValueChange={setBookingEndTime}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Fim" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {timeOptions.filter((t) => t > (bookingStartTime || '00:00')).map((t) => (
-                          <SelectItem key={t} value={t}>{t}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {bookingTeacherId && bookingDate && teacherSlotsForDay.length === 0 && (
-              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-700">
-                Este professor não tem horários disponíveis no dia selecionado ({weekDays[new Date(bookingDate + 'T12:00:00').getDay()]}).
-                Selecione outro professor ou outra data.
-              </div>
-            )}
-
-            {/* Student name */}
-            <div className="space-y-2">
-              <Label className="text-sm font-semibold">Nome do Aluno *</Label>
-              <Input
-                placeholder="Ex: Maria da Paz"
-                value={bookingStudentName}
-                onChange={(e) => setBookingStudentName(e.target.value)}
-              />
-            </div>
-
-            {/* Student email */}
-            <div className="space-y-2">
-              <Label className="text-sm font-semibold">E-mail do Aluno</Label>
-              <Input
-                type="email"
-                placeholder="email@exemplo.com (opcional)"
-                value={bookingStudentEmail}
-                onChange={(e) => setBookingStudentEmail(e.target.value)}
-              />
-            </div>
-
-            {/* Notes / Subject / Book */}
-            <div className="space-y-2">
-              <Label className="text-sm font-semibold flex items-center gap-1">
-                <BookOpen className="size-4" />
-                Matéria / Livro / Observações
-              </Label>
-              <Textarea
-                placeholder="Ex: Livro 1 - Teens, Aula de inglês, Capítulo 3..."
-                value={bookingNotes}
-                onChange={(e) => setBookingNotes(e.target.value)}
-                rows={3}
-                className="resize-none"
-              />
-              <p className="text-xs text-muted-foreground">
-                Campo livre para o coordenador anotar matéria, livro, capítulo ou outras informações.
-              </p>
-            </div>
-
-            {/* Summary */}
-            {bookingTeacherId && bookingDate && bookingStartTime && bookingEndTime && bookingStudentName && (
-              <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
-                <p className="text-sm font-medium text-emerald-800">
-                  Resumo do Agendamento
-                </p>
-                <div className="mt-1 text-sm text-emerald-700 space-y-0.5">
-                  <p>
-                    <User className="size-3 inline mr-1" />
-                    <strong>Professor:</strong> {teachers.find((t) => t.id === bookingTeacherId)?.name}
-                  </p>
-                  <p>
-                    <CalendarDays className="size-3 inline mr-1" />
-                    <strong>Data:</strong> {format(parseISO(bookingDate), "dd/MM/yyyy (EEEE)", { locale: ptBR })}
-                  </p>
-                  <p>
-                    <Clock className="size-3 inline mr-1" />
-                    <strong>Horário:</strong> {bookingStartTime} - {bookingEndTime}
-                  </p>
-                  <p>
-                    <User className="size-3 inline mr-1" />
-                    <strong>Aluno:</strong> {bookingStudentName}
-                  </p>
-                  {bookingNotes && (
-                    <p>
-                      <BookOpen className="size-3 inline mr-1" />
-                      <strong>Obs:</strong> {bookingNotes}
-                    </p>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-
-          <DialogFooter className="flex gap-2">
-            <Button variant="outline" onClick={() => setBookingOpen(false)}>
-              Cancelar
-            </Button>
-            <Button
-              onClick={handleCreateBooking}
-              disabled={bookingLoading || !bookingTeacherId || !bookingStudentName || !bookingStartTime || !bookingEndTime}
-              className="bg-emerald-600 hover:bg-emerald-700"
-            >
-              {bookingLoading ? (
-                <>
-                  <Loader2 className="size-4 mr-2 animate-spin" />
-                  Agendando...
-                </>
-              ) : (
-                'Confirmar Agendamento'
-              )}
-            </Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
 
