@@ -1,182 +1,177 @@
 /**
- * db.ts — Database access using better-sqlite3 (no Prisma)
- * Auto-creates all tables on first connection.
- * No terminal commands needed — just upload and run.
+ * db.ts — Cliente Supabase (PostgREST)
  */
-import Database from 'better-sqlite3';
-import path from 'path';
-import fs from 'fs';
 
-const DB_DIR = path.join(process.cwd(), 'db');
-const DB_PATH = process.env.DATABASE_URL?.replace('file:', '') || path.join(DB_DIR, 'custom.db');
+const SUPABASE_URL = (process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace(/\/$/, '');
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
-// Ensure db directory exists
-if (!fs.existsSync(DB_DIR)) {
-  fs.mkdirSync(DB_DIR, { recursive: true });
+if (!SUPABASE_URL || !SUPABASE_KEY) {
+  console.warn('[db] NEXT_PUBLIC_SUPABASE_URL ou SUPABASE_SERVICE_ROLE_KEY não definidas.');
 }
 
-const globalForDb = globalThis as unknown as {
-  _db: Database.Database | undefined;
+type Row = Record<string, unknown>;
+type OrderDir = 'asc' | 'desc';
+
+interface FindManyOptions {
+  where?: Row;
+  orderBy?: { [field: string]: OrderDir } | Array<{ [field: string]: OrderDir }>;
+  include?: Record<string, boolean>;
+  take?: number;
+  select?: string[];
+}
+
+async function sbFetch<T = unknown>(
+  path: string,
+  options: RequestInit = {}
+): Promise<T> {
+  const url = `${SUPABASE_URL}/rest/v1/${path}`;
+  const headers: Record<string, string> = {
+    'apikey': SUPABASE_KEY,
+    'Authorization': `Bearer ${SUPABASE_KEY}`,
+    'Content-Type': 'application/json',
+    'Prefer': 'return=representation',
+  };
+
+  const res = await fetch(url, {
+    ...options,
+    headers: { ...headers, ...(options.headers as Record<string, string> || {}) },
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({})) as { message?: string; hint?: string; details?: string };
+    const msg = err.message || err.details || err.hint || `Supabase error ${res.status}`;
+    console.error(`[db] ${options.method || 'GET'} ${url} → ${res.status}:`, msg);
+    throw new Error(msg);
+  }
+
+  const text = await res.text();
+  if (!text || text === 'null') return [] as unknown as T;
+  return JSON.parse(text) as T;
+}
+
+function buildQuery(table: string, opts: FindManyOptions = {}): string {
+  const params: string[] = [];
+
+  const selectFields = opts.select?.join(',') || '*';
+  params.push(`select=${selectFields}`);
+
+  if (opts.where) {
+    for (const [key, val] of Object.entries(opts.where)) {
+      if (val === null || val === undefined) continue;
+      if (typeof val === 'object' && !Array.isArray(val)) {
+        const op = val as Record<string, unknown>;
+        if (op.in)         params.push(`${key}=in.(${(op.in as unknown[]).join(',')})`);
+        if (op.gte)        params.push(`${key}=gte.${op.gte}`);
+        if (op.lte)        params.push(`${key}=lte.${op.lte}`);
+        if (op.gt)         params.push(`${key}=gt.${op.gt}`);
+        if (op.lt)         params.push(`${key}=lt.${op.lt}`);
+        if (op.startsWith) params.push(`${key}=like.${op.startsWith}*`);
+        if (op.contains)   params.push(`${key}=ilike.*${op.contains}*`);
+      } else {
+        params.push(`${key}=eq.${val}`);
+      }
+    }
+  }
+
+  if (opts.orderBy) {
+    const orders = Array.isArray(opts.orderBy) ? opts.orderBy : [opts.orderBy];
+    const orderStr = orders.map(o => {
+      const [field, dir] = Object.entries(o)[0];
+      return `${field}.${dir}`;
+    }).join(',');
+    params.push(`order=${orderStr}`);
+  }
+
+  if (opts.take) params.push(`limit=${opts.take}`);
+
+  return `${table}?${params.join('&')}`;
+}
+
+function makeTable<T extends Row>(table: string) {
+  return {
+    async findMany(opts: FindManyOptions = {}): Promise<T[]> {
+      return sbFetch<T[]>(buildQuery(table, opts));
+    },
+
+    async findUnique(opts: { where: Row }): Promise<T | null> {
+      const rows = await sbFetch<T[]>(buildQuery(table, { where: opts.where, take: 1 }));
+      return rows[0] ?? null;
+    },
+
+    async findFirst(opts: { where: Row }): Promise<T | null> {
+      const rows = await sbFetch<T[]>(buildQuery(table, { where: opts.where, take: 1 }));
+      return rows[0] ?? null;
+    },
+
+    async create(opts: { data: Row }): Promise<T> {
+      // ?select=* forces Supabase to return the created row
+      const rows = await sbFetch<T[]>(`${table}?select=*`, {
+        method: 'POST',
+        body: JSON.stringify(opts.data),
+      });
+      if (!rows[0]) throw new Error(`[db] create(${table}) sem retorno — verifique RLS e constraints`);
+      return rows[0];
+    },
+
+    async update(opts: { where: Row; data: Row }): Promise<T> {
+      const params = Object.entries(opts.where)
+        .map(([k, v]) => `${k}=eq.${v}`)
+        .join('&');
+      const rows = await sbFetch<T[]>(`${table}?${params}&select=*`, {
+        method: 'PATCH',
+        body: JSON.stringify(opts.data),
+      });
+      return rows[0];
+    },
+
+    async delete(opts: { where: Row }): Promise<void> {
+      const params = Object.entries(opts.where)
+        .map(([k, v]) => `${k}=eq.${v}`)
+        .join('&');
+      await sbFetch(`${table}?${params}`, { method: 'DELETE' });
+    },
+
+    async count(opts: { where?: Row } = {}): Promise<number> {
+      const params = new URLSearchParams();
+      params.set('select', 'id');
+      if (opts.where) {
+        for (const [k, v] of Object.entries(opts.where)) {
+          if (v === null || v === undefined) continue;
+          if (typeof v === 'object' && !Array.isArray(v)) {
+            const op = v as Record<string, unknown>;
+            if (op.in)  params.set(k, `in.(${(op.in as unknown[]).join(',')})`);
+            if (op.gte) params.set(k, `gte.${op.gte}`);
+          } else {
+            params.set(k, `eq.${v}`);
+          }
+        }
+      }
+      const url = `${SUPABASE_URL}/rest/v1/${table}?${params.toString()}`;
+      const res = await fetch(url, {
+        headers: {
+          'apikey': SUPABASE_KEY,
+          'Authorization': `Bearer ${SUPABASE_KEY}`,
+          'Prefer': 'count=exact',
+          'Range': '0-0',
+        },
+      });
+      const range = res.headers.get('Content-Range') || '0/0';
+      return parseInt(range.split('/')[1] || '0', 10);
+    },
+  };
+}
+
+export const db = {
+  user:             makeTable('users'),
+  teacher:          makeTable('teachers'),
+  coordinator:      makeTable('coordinators'),
+  student:          makeTable('students'),
+  availableSlot:    makeTable('available_slots'),
+  blockedSlot:      makeTable('blocked_slots'),
+  booking:          makeTable('bookings'),
+  recurringBooking: makeTable('recurring_bookings'),
+  nonClassDay:      makeTable('non_class_days'),
+  holiday:          makeTable('holidays'),
+  recess:           makeTable('recesses'),
+  blockedPeriod:    makeTable('blocked_periods'),
 };
-
-export const db = globalForDb._db ?? new Database(DB_PATH);
-
-if (process.env.NODE_ENV !== 'production') globalForDb._db = db;
-
-// Enable WAL mode for better concurrent read performance
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
-
-// Auto-create tables if they don't exist (runs only once)
-db.exec(`
-  CREATE TABLE IF NOT EXISTS users (
-    id         TEXT PRIMARY KEY,
-    email      TEXT UNIQUE NOT NULL,
-    name       TEXT NOT NULL,
-    password   TEXT NOT NULL,
-    role       TEXT NOT NULL DEFAULT 'teacher',
-    created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now'))
-  );
-
-  CREATE TABLE IF NOT EXISTS teachers (
-    id         TEXT PRIMARY KEY,
-    user_id    TEXT REFERENCES users(id) ON DELETE CASCADE,
-    name       TEXT NOT NULL,
-    email      TEXT UNIQUE NOT NULL,
-    subjects   TEXT DEFAULT '',
-    bio        TEXT DEFAULT '',
-    created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now'))
-  );
-  CREATE UNIQUE INDEX IF NOT EXISTS idx_teachers_user_id ON teachers(user_id);
-
-  CREATE TABLE IF NOT EXISTS coordinators (
-    id         TEXT PRIMARY KEY,
-    user_id    TEXT REFERENCES users(id) ON DELETE CASCADE,
-    name       TEXT NOT NULL,
-    email      TEXT UNIQUE NOT NULL,
-    created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now'))
-  );
-
-  CREATE TABLE IF NOT EXISTS students (
-    id         TEXT PRIMARY KEY,
-    user_id    TEXT REFERENCES users(id) ON DELETE SET NULL,
-    name       TEXT NOT NULL,
-    email      TEXT NOT NULL,
-    phone      TEXT DEFAULT '',
-    created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now'))
-  );
-
-  CREATE TABLE IF NOT EXISTS available_slots (
-    id           TEXT PRIMARY KEY,
-    teacher_id   TEXT NOT NULL REFERENCES teachers(id) ON DELETE CASCADE,
-    day_of_week  INT NOT NULL,
-    start_time   TEXT NOT NULL,
-    end_time     TEXT NOT NULL,
-    created_at   TEXT DEFAULT (datetime('now')),
-    UNIQUE(teacher_id, day_of_week, start_time, end_time)
-  );
-
-  CREATE TABLE IF NOT EXISTS blocked_slots (
-    id           TEXT PRIMARY KEY,
-    teacher_id   TEXT NOT NULL REFERENCES teachers(id) ON DELETE CASCADE,
-    date         TEXT NOT NULL,
-    start_time   TEXT NOT NULL,
-    end_time     TEXT NOT NULL,
-    reason       TEXT,
-    created_at   TEXT DEFAULT (datetime('now'))
-  );
-
-  CREATE TABLE IF NOT EXISTS bookings (
-    id                  TEXT PRIMARY KEY,
-    teacher_id          TEXT NOT NULL REFERENCES teachers(id) ON DELETE CASCADE,
-    student_id          TEXT REFERENCES users(id) ON DELETE SET NULL,
-    student_profile_id  TEXT REFERENCES students(id) ON DELETE SET NULL,
-    student_name        TEXT NOT NULL,
-    student_email       TEXT,
-    date                TEXT NOT NULL,
-    day_of_week         INT NOT NULL,
-    start_time          TEXT NOT NULL,
-    end_time            TEXT NOT NULL,
-    status              TEXT NOT NULL DEFAULT 'confirmed',
-    recurring_id        TEXT,
-    notes               TEXT DEFAULT '',
-    created_at          TEXT DEFAULT (datetime('now')),
-    updated_at          TEXT DEFAULT (datetime('now'))
-  );
-  CREATE INDEX IF NOT EXISTS idx_bookings_teacher ON bookings(teacher_id, date);
-
-  CREATE TABLE IF NOT EXISTS recurring_bookings (
-    id            TEXT PRIMARY KEY,
-    teacher_id    TEXT NOT NULL REFERENCES teachers(id) ON DELETE CASCADE,
-    student_name  TEXT NOT NULL,
-    student_email TEXT,
-    day_of_week   INT NOT NULL,
-    start_time    TEXT NOT NULL,
-    end_time      TEXT NOT NULL,
-    active        INTEGER DEFAULT 1,
-    created_at    TEXT DEFAULT (datetime('now')),
-    updated_at    TEXT DEFAULT (datetime('now'))
-  );
-
-  CREATE TABLE IF NOT EXISTS non_class_days (
-    id         TEXT PRIMARY KEY,
-    date       TEXT UNIQUE NOT NULL,
-    reason     TEXT NOT NULL,
-    created_at TEXT DEFAULT (datetime('now'))
-  );
-
-  CREATE TABLE IF NOT EXISTS holidays (
-    id        TEXT PRIMARY KEY,
-    date      TEXT NOT NULL,
-    name      TEXT NOT NULL,
-    type      TEXT NOT NULL DEFAULT 'nacional',
-    recurring INTEGER DEFAULT 0
-  );
-
-  CREATE TABLE IF NOT EXISTS recesses (
-    id          TEXT PRIMARY KEY,
-    start_date  TEXT NOT NULL,
-    end_date    TEXT NOT NULL,
-    description TEXT NOT NULL,
-    created_at  TEXT DEFAULT (datetime('now'))
-  );
-
-  CREATE TABLE IF NOT EXISTS blocked_periods (
-    id         TEXT PRIMARY KEY,
-    teacher_id TEXT NOT NULL REFERENCES teachers(id) ON DELETE CASCADE,
-    start_date TEXT NOT NULL,
-    end_date   TEXT NOT NULL,
-    reason     TEXT,
-    created_at TEXT DEFAULT (datetime('now'))
-  );
-`);
-
-// Helper: run a SELECT query and return rows as array of objects
-export function all<T = Record<string, unknown>>(sql: string, params?: unknown[]): T[] {
-  const stmt = db.prepare(sql);
-  return stmt.all(...(params || [])) as T[];
-}
-
-// Helper: run a SELECT query and return first row or undefined
-export function get<T = Record<string, unknown>>(sql: string, params?: unknown[]): T | undefined {
-  const stmt = db.prepare(sql);
-  return stmt.get(...(params || [])) as T | undefined;
-}
-
-// Helper: run an INSERT/UPDATE/DELETE and return info
-export function run(sql: string, params?: unknown[]): Database.RunResult {
-  const stmt = db.prepare(sql);
-  return stmt.run(...(params || []));
-}
-
-// Helper: run multiple operations in a transaction
-export function transaction<T>(fn: () => T): T {
-  const t = db.transaction(fn);
-  return t();
-}
-
-export default db;
