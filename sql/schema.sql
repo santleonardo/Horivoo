@@ -76,12 +76,16 @@ CREATE TABLE IF NOT EXISTS bookings (
   start_time          TEXT NOT NULL,
   end_time            TEXT NOT NULL,
   status              TEXT NOT NULL DEFAULT 'confirmed',
-  notes               TEXT,
   recurring_id        TEXT,
+  booking_type        TEXT NOT NULL DEFAULT 'normal',
+  original_booking_id TEXT REFERENCES bookings(id) ON DELETE SET NULL,
+  notes               TEXT DEFAULT '',
   created_at          TIMESTAMPTZ DEFAULT NOW(),
   updated_at          TIMESTAMPTZ DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_bookings_teacher ON bookings(teacher_id, date);
+CREATE INDEX IF NOT EXISTS idx_bookings_original ON bookings(original_booking_id);
+CREATE INDEX IF NOT EXISTS idx_bookings_type ON bookings(booking_type);
 
 CREATE TABLE IF NOT EXISTS recurring_bookings (
   id            TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
