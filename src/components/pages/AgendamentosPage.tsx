@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -147,7 +147,7 @@ export function AgendamentosPage() {
     const dateObj = new Date(reposDate + 'T12:00:00');
     const dayOfWeek = dateObj.getDay();
 
-    const daySlots = teacher.availableSlots
+    const daySlots = (teacher.availableSlots || [])
       .filter((s) => s.dayOfWeek === dayOfWeek)
       .sort((a, b) => a.startTime.localeCompare(b.startTime));
 
