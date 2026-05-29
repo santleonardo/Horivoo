@@ -1,3 +1,10 @@
+/**
+ * /api/bookings/route.ts (atualizado v0.3)
+ * Novos filtros no GET:
+ *   ?studentEmail=   → aulas de um aluno específico (para a página Minhas Aulas)
+ *   ?from=yyyy-MM-dd → data inicial do filtro
+ *   ?to=yyyy-MM-dd   → data final do filtro
+ */
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { addDays, format, parse } from 'date-fns';
@@ -7,43 +14,68 @@ type Row = Record<string, unknown>;
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const teacherId = searchParams.get('teacherId');
+    const teacherId        = searchParams.get('teacherId');
     const studentProfileId = searchParams.get('studentProfileId');
-    const date = searchParams.get('date');
-    const weekStartStr = searchParams.get('weekStart');
-    const status = searchParams.get('status');
-    const bookingType = searchParams.get('bookingType');
+    const studentEmail     = searchParams.get('studentEmail');   // ← NOVO
+    const date             = searchParams.get('date');
+    const weekStartStr     = searchParams.get('weekStart');
+    const fromStr          = searchParams.get('from');           // ← NOVO
+    const toStr            = searchParams.get('to');             // ← NOVO
+    const status           = searchParams.get('status');
+    const bookingType      = searchParams.get('bookingType');
 
-    // where clause uses snake_case for PostgREST query params
     const where: Row = {};
-    if (teacherId) where['teacher_id'] = teacherId;
+    if (teacherId)        where['teacher_id']        = teacherId;
     if (studentProfileId) where['student_profile_id'] = studentProfileId;
-    if (date) where['date'] = date;
-    if (status) where['status'] = status;
-    if (bookingType) where['booking_type'] = bookingType;
+    if (studentEmail)     where['student_email']      = studentEmail;
+    if (date)             where['date']               = date;
+    if (status)           where['status']             = status;
+    if (bookingType)      where['booking_type']       = bookingType;
 
     if (weekStartStr) {
       const weekStart = parse(weekStartStr, 'yyyy-MM-dd', new Date());
       const weekDates: string[] = [];
       for (let i = 0; i < 7; i++) weekDates.push(format(addDays(weekStart, i), 'yyyy-MM-dd'));
       where['date'] = { in: weekDates };
+    } else if (fromStr && toStr) {
+      // Build list of dates between from and to (max 31 days)
+      const from = parse(fromStr, 'yyyy-MM-dd', new Date());
+      const to   = parse(toStr,   'yyyy-MM-dd', new Date());
+      const dates: string[] = [];
+      let cur = from;
+      while (cur <= to && dates.length < 31) {
+        dates.push(format(cur, 'yyyy-MM-dd'));
+        cur = addDays(cur, 1);
+      }
+      where['date'] = { in: dates };
     }
 
-    // orderBy uses snake_case for PostgREST
     const bookings = await db.booking.findMany({
       where,
       orderBy: [{ date: 'asc' }, { start_time: 'asc' }],
     });
 
-    // After toCamel, fields are camelCase
-    const tIds = [...new Set((bookings as Row[]).map(b => b['teacherId'] as string))];
-    const teachers = tIds.length ? await db.teacher.findMany({ where: { id: { in: tIds } } }) : [];
+    const tIds = [...new Set((bookings as Row[]).map(b => b['teacher_id'] as string))];
+    const teachers = tIds.length
+      ? await db.teacher.findMany({ where: { id: { in: tIds } } })
+      : [];
     const tMap = new Map((teachers as Row[]).map(t => [t['id'], t]));
-    const enriched = (bookings as Row[]).map(b => ({ ...b, teacher: tMap.get(b['teacherId'] as string) || null }));
+
+    const enriched = (bookings as Row[]).map(b => ({
+      ...b,
+      startTime:         b['start_time'],
+      endTime:           b['end_time'],
+      studentName:       b['student_name'],
+      studentEmail:      b['student_email'],
+      bookingType:       b['booking_type'],
+      originalBookingId: b['original_booking_id'],
+      teacherName:       (tMap.get(b['teacher_id'] as string) as Row | null)?.['name'] ?? '',
+      teacher:           tMap.get(b['teacher_id'] as string) || null,
+    }));
 
     return NextResponse.json({ bookings: enriched });
   } catch (error) {
-    console.error(error);
+    console.error('[bookings GET]', error);
     return NextResponse.json({ error: 'Erro ao buscar agendamentos' }, { status: 500 });
   }
 }
@@ -85,7 +117,6 @@ export async function POST(request: NextRequest) {
 
     const dayOfWeek = new Date(date + 'T12:00:00').getDay();
 
-    // where clauses use snake_case for PostgREST
     const [avail, existing, blocked, nonClass, holiday, recess, blockedPeriod] = await Promise.all([
       db.availableSlot.findFirst({ where: { teacher_id: teacherId, day_of_week: dayOfWeek, start_time: startTime, end_time: endTime } }),
       db.booking.findFirst({ where: { teacher_id: teacherId, date, start_time: startTime, status: 'confirmed' } }),
@@ -96,38 +127,34 @@ export async function POST(request: NextRequest) {
       db.blockedPeriod.findFirst({ where: { teacher_id: teacherId, start_date: { lte: date }, end_date: { gte: date } } }),
     ]);
 
-    if (!avail) return NextResponse.json({ error: 'Horário não disponível para este professor' }, { status: 400 });
-    if (existing) return NextResponse.json({ error: 'Já existe agendamento neste horário' }, { status: 400 });
-    if (blocked) return NextResponse.json({ error: 'Horário bloqueado' }, { status: 400 });
-    if (nonClass) return NextResponse.json({ error: 'Dia sem aula' }, { status: 400 });
-    if (holiday) return NextResponse.json({ error: 'Feriado' }, { status: 400 });
-    if (recess) return NextResponse.json({ error: 'Período de recesso' }, { status: 400 });
-    if (blockedPeriod) return NextResponse.json({ error: 'Professor indisponível nesta data' }, { status: 400 });
+    if (!avail)          return NextResponse.json({ error: 'Horário não disponível para este professor' }, { status: 400 });
+    if (existing)        return NextResponse.json({ error: 'Já existe agendamento neste horário' }, { status: 400 });
+    if (blocked)         return NextResponse.json({ error: 'Horário bloqueado' }, { status: 400 });
+    if (nonClass)        return NextResponse.json({ error: 'Dia sem aula' }, { status: 400 });
+    if (holiday)         return NextResponse.json({ error: 'Feriado' }, { status: 400 });
+    if (recess)          return NextResponse.json({ error: 'Período de recesso' }, { status: 400 });
+    if (blockedPeriod)   return NextResponse.json({ error: 'Professor indisponível nesta data' }, { status: 400 });
 
-    // create data uses snake_case for PostgREST columns
     const data: Row = {
-      teacher_id: teacherId,
-      student_name: studentName,
-      student_email: studentEmail || null,
+      teacher_id:         teacherId,
+      student_name:       studentName,
+      student_email:      studentEmail || null,
       student_profile_id: studentProfileId || null,
       date,
-      day_of_week: dayOfWeek,
-      start_time: startTime,
-      end_time: endTime,
-      status: 'confirmed',
-      booking_type: bookingType,
+      day_of_week:        dayOfWeek,
+      start_time:         startTime,
+      end_time:           endTime,
+      status:             'confirmed',
+      booking_type:       bookingType,
       notes,
     };
 
-    if (originalBookingId) {
-      data['original_booking_id'] = originalBookingId;
-    }
+    if (originalBookingId) data['original_booking_id'] = originalBookingId;
 
     const booking = await db.booking.create({ data });
-
     return NextResponse.json({ booking }, { status: 201 });
   } catch (error) {
-    console.error(error);
+    console.error('[bookings POST]', error);
     return NextResponse.json({ error: 'Erro ao criar agendamento' }, { status: 500 });
   }
 }
