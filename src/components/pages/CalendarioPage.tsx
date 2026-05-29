@@ -154,8 +154,34 @@ export function CalendarioPage() {
       setHolidays(hData.holidays || []);
       setRecesses(rData.recesses || []);
       setBookings(cData.bookings || []);
-      setTeachers(cData.teachers || []);
       setStudents(sData.students || []);
+
+      // Enrich each teacher with their availableSlots
+      // /api/calendar returns teachers without availableSlots — fetch them in parallel
+      const rawTeachers: Teacher[] = cData.teachers || [];
+      if (rawTeachers.length > 0) {
+        const slotResults = await Promise.all(
+          rawTeachers.map((t) =>
+            fetch(`/api/teachers/${t.id}/available-slots`)
+              .then((r) => r.json())
+              .catch(() => ({ slots: [] }))
+          )
+        );
+        const enriched = rawTeachers.map((t, i) => ({
+          ...t,
+          availableSlots: (slotResults[i]?.slots || []).map(
+            (s: { id: string; day_of_week: number; start_time: string; end_time: string }) => ({
+              id:        s.id,
+              dayOfWeek: s.day_of_week,
+              startTime: s.start_time,
+              endTime:   s.end_time,
+            })
+          ),
+        }));
+        setTeachers(enriched);
+      } else {
+        setTeachers([]);
+      }
     } catch {
       toast.error('Erro ao carregar dados do calendário');
     } finally {
@@ -183,7 +209,7 @@ export function CalendarioPage() {
     const dateObj = new Date(bookingDate + 'T12:00:00');
     const dayOfWeek = dateObj.getDay();
 
-    const daySlots = teacher.availableSlots
+    const daySlots = (teacher.availableSlots || [])
       .filter((s) => s.dayOfWeek === dayOfWeek)
       .sort((a, b) => a.startTime.localeCompare(b.startTime));
 
@@ -288,8 +314,8 @@ export function CalendarioPage() {
       (r) => dateStr >= r.startDate && dateStr <= r.endDate
     );
     const dow = getDay(date);
-    const hasAvailableSlots = teachers.some((t) =>
-      t.availableSlots.some((s) => s.dayOfWeek === dow)
+    const hasAvailableSlots = Array.isArray(teachers) && teachers.some((t) =>
+      Array.isArray(t.availableSlots) && t.availableSlots.some((s) => s.dayOfWeek === dow)
     );
 
     return {
