@@ -53,7 +53,7 @@ interface Booking {
   bookingType?: string;
   originalBookingId?: string;
   notes?: string;
-  teacher: { name: string };
+  teacher: { id?: string; name: string };
   studentProfile?: { name: string } | null;
   studentProfileId?: string | null;
 }
