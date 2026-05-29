@@ -1,9 +1,7 @@
 /**
  * db.ts — Cliente Supabase (PostgREST)
- * Todas as respostas são automaticamente convertidas de snake_case para camelCase.
+ * Adicionado: db.message para sistema de mensagens
  */
-
-import { toCamel } from './utils';
 
 const SUPABASE_URL = (process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace(/\/$/, '');
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
@@ -49,9 +47,7 @@ async function sbFetch<T = unknown>(
 
   const text = await res.text();
   if (!text || text === 'null') return [] as unknown as T;
-  const parsed = JSON.parse(text);
-  // Auto-transform snake_case → camelCase for all Supabase responses
-  return toCamel(parsed) as T;
+  return JSON.parse(text) as T;
 }
 
 function buildQuery(table: string, opts: FindManyOptions = {}): string {
@@ -109,7 +105,6 @@ function makeTable<T extends Row>(table: string) {
     },
 
     async create(opts: { data: Row }): Promise<T> {
-      // ?select=* forces Supabase to return the created row
       const rows = await sbFetch<T[]>(`${table}?select=*`, {
         method: 'POST',
         body: JSON.stringify(opts.data),
@@ -179,4 +174,6 @@ export const db = {
   holiday:          makeTable('holidays'),
   recess:           makeTable('recesses'),
   blockedPeriod:    makeTable('blocked_periods'),
+  /** Tabela de mensagens internas — adicionada na v0.3 */
+  message:          makeTable('messages'),
 };

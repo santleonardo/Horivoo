@@ -9,27 +9,52 @@ interface AuthUser {
   teacherId?: string;
 }
 
-export type PageKey = 
-  | 'dashboard' 
-  | 'professores' 
-  | 'alunos' 
-  | 'agenda' 
-  | 'calendario' 
-  | 'feriados' 
-  | 'recessos' 
-  | 'agendamentos' 
+/**
+ * Todas as chaves de página do sistema.
+ * Coordenador: dashboard, professores, alunos, agenda, calendario, feriados,
+ *              recessos, agendamentos, reposicoes, relatorios, exportar,
+ *              configuracoes, mensagens
+ * Professor:   minha-agenda, disponibilidade, calendario, mensagens, perfil
+ * Aluno:       calendario, minhas-aulas, mensagens, perfil
+ */
+export type PageKey =
+  // Coordenador
+  | 'dashboard'
+  | 'professores'
+  | 'alunos'
+  | 'agenda'
+  | 'calendario'
+  | 'feriados'
+  | 'recessos'
+  | 'agendamentos'
   | 'reposicoes'
-  | 'relatorios' 
-  | 'exportar' 
-  | 'configuracoes';
+  | 'relatorios'
+  | 'exportar'
+  | 'configuracoes'
+  // Compartilhadas / mensagens
+  | 'mensagens'
+  // Professor
+  | 'minha-agenda'
+  | 'disponibilidade'
+  // Aluno
+  | 'minhas-aulas'
+  // Todos
+  | 'perfil';
+
+/** Página inicial por papel */
+const defaultPage: Record<string, PageKey> = {
+  coordinator: 'dashboard',
+  teacher:     'minha-agenda',
+  student:     'minhas-aulas',
+};
 
 interface AuthStore {
   user: AuthUser | null;
   loading: boolean;
   activePage: PageKey;
-  login: (email: string, password: string) => Promise<void>;
-  signup: (email: string, password: string, name: string, role: string) => Promise<void>;
-  logout: () => void;
+  login:     (email: string, password: string) => Promise<void>;
+  signup:    (email: string, password: string, name: string, role: string) => Promise<void>;
+  logout:    () => void;
   checkAuth: () => Promise<void>;
   setActivePage: (page: PageKey) => void;
 }
@@ -52,7 +77,8 @@ export const useAuthStore = create<AuthStore>((set) => ({
     const data = await res.json();
     localStorage.setItem('horivoo_token', data.token);
     localStorage.setItem('horivoo_user', JSON.stringify(data.user));
-    set({ user: { ...data.user, token: data.token }, activePage: 'dashboard' });
+    const startPage: PageKey = defaultPage[data.user.role] ?? 'dashboard';
+    set({ user: { ...data.user, token: data.token }, activePage: startPage });
   },
 
   signup: async (email, password, name, role) => {
@@ -68,7 +94,8 @@ export const useAuthStore = create<AuthStore>((set) => ({
     const data = await res.json();
     localStorage.setItem('horivoo_token', data.token);
     localStorage.setItem('horivoo_user', JSON.stringify(data.user));
-    set({ user: { ...data.user, token: data.token }, activePage: 'dashboard' });
+    const startPage: PageKey = defaultPage[data.user.role] ?? 'dashboard';
+    set({ user: { ...data.user, token: data.token }, activePage: startPage });
   },
 
   logout: () => {
@@ -78,16 +105,15 @@ export const useAuthStore = create<AuthStore>((set) => ({
   },
 
   checkAuth: async () => {
-    const token = localStorage.getItem('horivoo_token');
+    const token   = localStorage.getItem('horivoo_token');
     const userStr = localStorage.getItem('horivoo_user');
     if (token && userStr) {
       try {
-        const user = JSON.parse(userStr);
-        set({ user: { ...user, token }, loading: false });
+        const user      = JSON.parse(userStr) as AuthUser;
+        const startPage: PageKey = defaultPage[user.role] ?? 'dashboard';
+        set({ user: { ...user, token }, loading: false, activePage: startPage });
         return;
-      } catch {
-        /* ignore */
-      }
+      } catch { /* ignore */ }
     }
     set({ loading: false });
   },
@@ -95,15 +121,15 @@ export const useAuthStore = create<AuthStore>((set) => ({
   setActivePage: (page) => set({ activePage: page }),
 }));
 
-// Helper for authenticated fetch
+/** Helper para requisições autenticadas */
 export function authFetch(url: string, options: RequestInit = {}, token?: string) {
-  const t = token || localStorage.getItem('horivoo_token');
+  const t = token || (typeof window !== 'undefined' ? localStorage.getItem('horivoo_token') : null);
   return fetch(url, {
     ...options,
     headers: {
+      'Content-Type': 'application/json',
       ...options.headers,
       ...(t ? { Authorization: `Bearer ${t}` } : {}),
-      'Content-Type': 'application/json',
     },
   });
 }
