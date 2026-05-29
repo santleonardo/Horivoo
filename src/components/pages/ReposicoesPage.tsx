@@ -1,13 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { Checkbox } from '@/components/ui/checkbox';
 import {
   Select,
   SelectContent,
@@ -24,12 +23,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import {
   Table,
   TableBody,
   TableCell,
@@ -37,7 +30,18 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { ClipboardList, MoreHorizontal, CheckCircle, XCircle, Clock, Filter, RotateCcw, Plus, Loader2, StickyNote } from 'lucide-react';
+import {
+  RotateCcw,
+  Plus,
+  Loader2,
+  StickyNote,
+  XCircle,
+  CheckCircle,
+  Clock,
+  AlertCircle,
+  CalendarDays,
+  ArrowRight,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -53,9 +57,9 @@ interface Booking {
   bookingType?: string;
   originalBookingId?: string;
   notes?: string;
-  teacher: { name: string };
-  studentProfile?: { name: string } | null;
-  studentProfileId?: string | null;
+  teacher?: { name: string };
+  teacherId?: string;
+  dayOfWeek?: number;
 }
 
 interface Teacher {
@@ -72,17 +76,11 @@ interface Student {
   email: string;
 }
 
-const statusConfig: Record<string, { label: string; color: string; icon: React.ElementType }> = {
-  confirmed: { label: 'Confirmado', color: 'bg-emerald-100 text-emerald-700', icon: CheckCircle },
-  cancelled: { label: 'Cancelado', color: 'bg-red-100 text-red-700', icon: XCircle },
-  completed: { label: 'Concluído', color: 'bg-gray-100 text-gray-700', icon: Clock },
-  reposition: { label: 'Reposição', color: 'bg-purple-100 text-purple-700', icon: RotateCcw },
-};
-
-export function AgendamentosPage() {
+export function ReposicoesPage() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [teachers, setTeachers] = useState<Teacher[]>([]);
+  const [students, setStudents] = useState<Student[]>([]);
 
   // Reposition dialog state
   const [reposOpen, setReposOpen] = useState(false);
@@ -94,44 +92,30 @@ export function AgendamentosPage() {
   const [reposStudent, setReposStudent] = useState('');
   const [reposNotes, setReposNotes] = useState('');
   const [reposSubmitting, setReposSubmitting] = useState(false);
-  const [teachers, setTeachers] = useState<Teacher[]>([]);
-  const [students, setStudents] = useState<Student[]>([]);
   const [reposAvailableSlots, setReposAvailableSlots] = useState<{ startTime: string; endTime: string; available: boolean; reason?: string }[]>([]);
 
-  const loadBookings = useCallback(async () => {
+  const loadData = useCallback(async () => {
     try {
-      const res = await fetch('/api/bookings');
-      const data = await res.json();
-      setBookings(data.bookings || []);
+      const [bRes, tRes, sRes] = await Promise.all([
+        fetch('/api/bookings').then((r) => r.json()),
+        fetch('/api/teachers').then((r) => r.json()),
+        fetch('/api/students').then((r) => r.json()),
+      ]);
+      setBookings(bRes.bookings || []);
+      setTeachers(tRes.teachers || []);
+      setStudents(sRes.students || []);
     } catch {
-      toast.error('Erro ao carregar agendamentos');
+      toast.error('Erro ao carregar dados');
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    loadBookings();
-  }, [loadBookings]);
+    loadData();
+  }, [loadData]);
 
-  // Load teachers and students for reposição dialog
-  useEffect(() => {
-    if (reposOpen) {
-      Promise.all([
-        fetch('/api/teachers').then((r) => r.json()),
-        fetch('/api/students').then((r) => r.json()),
-      ])
-        .then(([tData, sData]) => {
-          setTeachers(tData.teachers || []);
-          setStudents(sData.students || []);
-        })
-        .catch(() => {
-          toast.error('Erro ao carregar dados');
-        });
-    }
-  }, [reposOpen]);
-
-  // Compute available slots for reposição
+  // Compute available slots for reposição dialog
   useEffect(() => {
     if (!reposTeacher || !reposDate) {
       setReposAvailableSlots([]);
@@ -216,48 +200,22 @@ export function AgendamentosPage() {
     computeAvailability();
   }, [reposTeacher, reposDate, teachers]);
 
-  const filtered = bookings.filter((b) => {
-    if (statusFilter === 'all') return true;
-    if (statusFilter === 'reposition') return b.bookingType === 'reposition';
-    return b.status === statusFilter;
-  });
+  // Separate cancelled bookings without reposição and reposition bookings
+  const repositionBookings = bookings.filter((b) => b.bookingType === 'reposition');
+  const repositionOriginalIds = new Set(repositionBookings.map((b) => b.originalBookingId).filter(Boolean));
 
-  const updateStatus = async (id: string, status: string) => {
-    try {
-      const res = await fetch(`/api/bookings/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status }),
-      });
-      if (!res.ok) throw new Error();
-      toast.success(`Agendamento ${statusConfig[status]?.label || status}`);
-      setBookings((prev) =>
-        prev.map((b) => (b.id === id ? { ...b, status } : b))
-      );
-    } catch {
-      toast.error('Erro ao atualizar agendamento');
-    }
-  };
-
-  const deleteBooking = async (id: string) => {
-    if (!confirm('Deseja realmente excluir este agendamento?')) return;
-    try {
-      await fetch(`/api/bookings/${id}`, { method: 'DELETE' });
-      toast.success('Agendamento excluído');
-      setBookings((prev) => prev.filter((b) => b.id !== id));
-    } catch {
-      toast.error('Erro ao excluir agendamento');
-    }
-  };
+  const cancelledWithoutReposition = bookings.filter(
+    (b) => b.status === 'cancelled' && !repositionOriginalIds.has(b.id) && b.bookingType !== 'reposition'
+  );
 
   const openReposDialog = (booking: Booking) => {
     setReposOriginalBooking(booking);
-    setReposTeacher(booking.teacher?.id || '');
+    setReposTeacher(booking.teacherId || '');
     setReposDate('');
     setReposStartTime('');
     setReposEndTime('');
     setReposStudent('');
-    setReposNotes('');
+    setReposNotes(booking.notes || '');
     setReposOpen(true);
   };
 
@@ -299,7 +257,8 @@ export function AgendamentosPage() {
 
       toast.success('Reposição agendada com sucesso!');
       setReposOpen(false);
-      loadBookings();
+      setLoading(true);
+      loadData();
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Erro ao criar reposição');
     } finally {
@@ -307,99 +266,237 @@ export function AgendamentosPage() {
     }
   };
 
-  const sortedBookings = [...filtered].sort((a, b) => {
-    if (a.date !== b.date) return a.date.localeCompare(b.date);
-    return a.startTime.localeCompare(b.startTime);
-  });
+  // Get the original booking for a reposition
+  const getOriginalBooking = (originalId?: string): Booking | undefined => {
+    if (!originalId) return undefined;
+    return bookings.find((b) => b.id === originalId);
+  };
 
-  return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between flex-wrap gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Agendamentos</h1>
-          <p className="text-muted-foreground">Gerencie todos os agendamentos</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Filter className="size-4 text-muted-foreground" />
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-[180px]">
-              <SelectValue placeholder="Filtrar status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos</SelectItem>
-              <SelectItem value="confirmed">Confirmados</SelectItem>
-              <SelectItem value="cancelled">Cancelados</SelectItem>
-              <SelectItem value="completed">Concluídos</SelectItem>
-              <SelectItem value="reposition">Reposições</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
+  const statusLabel = (status: string) => {
+    switch (status) {
+      case 'confirmed': return 'Confirmado';
+      case 'cancelled': return 'Cancelado';
+      case 'completed': return 'Concluído';
+      default: return status;
+    }
+  };
 
-      {loading ? (
+  const statusColor = (status: string) => {
+    switch (status) {
+      case 'confirmed': return 'bg-emerald-100 text-emerald-700';
+      case 'cancelled': return 'bg-red-100 text-red-700';
+      case 'completed': return 'bg-gray-100 text-gray-700';
+      default: return 'bg-gray-100 text-gray-700';
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="space-y-6">
         <Card className="animate-pulse">
           <CardContent className="p-6">
             <div className="h-60 bg-muted rounded" />
           </CardContent>
         </Card>
-      ) : sortedBookings.length === 0 ? (
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold text-foreground">Reposições</h1>
+        <p className="text-muted-foreground">Gerencie reposições de aulas canceladas</p>
+      </div>
+
+      {/* Summary Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <Card>
-          <CardContent className="p-8 text-center text-muted-foreground">
-            <ClipboardList className="size-12 mx-auto mb-3 opacity-30" />
-            <p>Nenhum agendamento encontrado</p>
+          <CardContent className="p-4 flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-red-50">
+              <XCircle className="size-5 text-red-600" />
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">Aguardando Reposição</p>
+              <p className="text-xl font-bold">{cancelledWithoutReposition.length}</p>
+            </div>
           </CardContent>
         </Card>
-      ) : (
         <Card>
-          <CardContent className="p-0">
+          <CardContent className="p-4 flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-purple-50">
+              <RotateCcw className="size-5 text-purple-600" />
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">Reposições Agendadas</p>
+              <p className="text-xl font-bold">{repositionBookings.filter((b) => b.status === 'confirmed').length}</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4 flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-emerald-50">
+              <CheckCircle className="size-5 text-emerald-600" />
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">Reposições Concluídas</p>
+              <p className="text-xl font-bold">{repositionBookings.filter((b) => b.status === 'completed').length}</p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Cancelled Bookings Without Reposition */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <XCircle className="size-5 text-red-500" />
+            Aulas Canceladas sem Reposição
+          </CardTitle>
+          <CardDescription>
+            Aulas canceladas que ainda não têm uma reposição agendada
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {cancelledWithoutReposition.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <CheckCircle className="size-12 mx-auto mb-3 opacity-30" />
+              <p>Nenhuma aula cancelada sem reposição</p>
+              <p className="text-xs mt-1">Todas as aulas canceladas já possuem reposição agendada</p>
+            </div>
+          ) : (
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Data</TableHead>
+                    <TableHead>Data Original</TableHead>
                     <TableHead>Horário</TableHead>
                     <TableHead>Professor</TableHead>
                     <TableHead>Aluno</TableHead>
-                    <TableHead>Tipo</TableHead>
-                    <TableHead>Status</TableHead>
                     <TableHead>Observações</TableHead>
-                    <TableHead className="w-[80px]">Ações</TableHead>
+                    <TableHead className="w-[140px]">Ação</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {sortedBookings.map((booking) => {
-                    const config = statusConfig[booking.status] || statusConfig.confirmed;
-                    const StatusIcon = config.icon;
-                    const isReposition = booking.bookingType === 'reposition';
+                  {cancelledWithoutReposition.map((booking) => (
+                    <TableRow key={booking.id}>
+                      <TableCell className="font-medium text-sm">
+                        {format(parseISO(booking.date), 'dd/MM/yyyy', { locale: ptBR })}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1">
+                          <Clock className="size-3 text-muted-foreground" />
+                          <span className="text-sm font-mono">
+                            {booking.startTime}-{booking.endTime}
+                          </span>
+                        </div>
+                      </TableCell>
+                      <TableCell>{booking.teacher?.name || '-'}</TableCell>
+                      <TableCell>{booking.studentName}</TableCell>
+                      <TableCell className="max-w-[200px]">
+                        {booking.notes ? (
+                          <div className="flex items-start gap-1 text-xs text-muted-foreground">
+                            <StickyNote className="size-3 shrink-0 mt-0.5" />
+                            <span className="line-clamp-2">{booking.notes}</span>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">-</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Button
+                          size="sm"
+                          className="bg-purple-600 hover:bg-purple-700 h-8 text-xs"
+                          onClick={() => openReposDialog(booking)}
+                        >
+                          <RotateCcw className="size-3 mr-1" />
+                          Agendar Reposição
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Reposition Bookings */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <RotateCcw className="size-5 text-purple-500" />
+            Reposições Agendadas
+          </CardTitle>
+          <CardDescription>
+            Todas as reposições de aulas criadas
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {repositionBookings.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <AlertCircle className="size-12 mx-auto mb-3 opacity-30" />
+              <p>Nenhuma reposição agendada</p>
+              <p className="text-xs mt-1">Agende uma reposição a partir de uma aula cancelada</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Data Original</TableHead>
+                    <TableHead>Data Reposição</TableHead>
+                    <TableHead>Horário</TableHead>
+                    <TableHead>Professor</TableHead>
+                    <TableHead>Aluno</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Observações</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {repositionBookings.map((booking) => {
+                    const original = getOriginalBooking(booking.originalBookingId);
                     return (
                       <TableRow key={booking.id}>
+                        <TableCell className="text-sm">
+                          {original ? (
+                            <div>
+                              <span className="font-medium">
+                                {format(parseISO(original.date), 'dd/MM/yyyy', { locale: ptBR })}
+                              </span>
+                              <span className="text-xs text-muted-foreground block">
+                                {original.startTime}-{original.endTime}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground">-</span>
+                          )}
+                        </TableCell>
                         <TableCell className="font-medium text-sm">
-                          {format(parseISO(booking.date), 'dd/MM/yyyy', { locale: ptBR })}
+                          <div className="flex items-center gap-2">
+                            <CalendarDays className="size-3 text-emerald-500" />
+                            <div>
+                              <span>
+                                {format(parseISO(booking.date), 'dd/MM/yyyy', { locale: ptBR })}
+                              </span>
+                              <span className="text-xs text-muted-foreground block">
+                                {booking.startTime}-{booking.endTime}
+                              </span>
+                            </div>
+                          </div>
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center gap-1">
-                            <Clock className="size-3 text-muted-foreground" />
-                            <span className="text-sm font-mono">
-                              {booking.startTime}-{booking.endTime}
-                            </span>
+                            <ArrowRight className="size-3 text-purple-400" />
+                            {booking.startTime}-{booking.endTime}
                           </div>
                         </TableCell>
                         <TableCell>{booking.teacher?.name || '-'}</TableCell>
                         <TableCell>{booking.studentName}</TableCell>
                         <TableCell>
-                          {isReposition ? (
-                            <Badge className="bg-purple-100 text-purple-700">
-                              <RotateCcw className="size-3 mr-1" />
-                              Reposição
-                            </Badge>
-                          ) : (
-                            <Badge variant="secondary" className="bg-gray-100 text-gray-600">Normal</Badge>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <Badge className={config.color}>
-                            <StatusIcon className="size-3 mr-1" />
-                            {config.label}
+                          <Badge className={statusColor(booking.status)}>
+                            {statusLabel(booking.status)}
                           </Badge>
                         </TableCell>
                         <TableCell className="max-w-[200px]">
@@ -412,104 +509,15 @@ export function AgendamentosPage() {
                             <span className="text-xs text-muted-foreground">-</span>
                           )}
                         </TableCell>
-                        <TableCell>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon" className="size-8">
-                                <MoreHorizontal className="size-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              {booking.status === 'confirmed' && (
-                                <>
-                                  <DropdownMenuItem onClick={() => updateStatus(booking.id, 'completed')}>
-                                    <CheckCircle className="size-4 mr-2" />
-                                    Marcar Concluído
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem onClick={() => updateStatus(booking.id, 'cancelled')}>
-                                    <XCircle className="size-4 mr-2" />
-                                    Cancelar
-                                  </DropdownMenuItem>
-                                </>
-                              )}
-                              {booking.status === 'cancelled' && (
-                                <>
-                                  <DropdownMenuItem onClick={() => updateStatus(booking.id, 'confirmed')}>
-                                    <CheckCircle className="size-4 mr-2" />
-                                    Reconfirmar
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem onClick={() => openReposDialog(booking)}>
-                                    <RotateCcw className="size-4 mr-2" />
-                                    Agendar Reposição
-                                  </DropdownMenuItem>
-                                </>
-                              )}
-                              <DropdownMenuItem
-                                className="text-destructive"
-                                onClick={() => deleteBooking(booking.id)}
-                              >
-                                Excluir
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </TableCell>
                       </TableRow>
                     );
                   })}
                 </TableBody>
               </Table>
             </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-emerald-50">
-              <CheckCircle className="size-5 text-emerald-600" />
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Confirmados</p>
-              <p className="text-xl font-bold">{bookings.filter((b) => b.status === 'confirmed' && b.bookingType !== 'reposition').length}</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-gray-50">
-              <Clock className="size-5 text-gray-600" />
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Concluídos</p>
-              <p className="text-xl font-bold">{bookings.filter((b) => b.status === 'completed').length}</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-red-50">
-              <XCircle className="size-5 text-red-600" />
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Cancelados</p>
-              <p className="text-xl font-bold">{bookings.filter((b) => b.status === 'cancelled').length}</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-purple-50">
-              <RotateCcw className="size-5 text-purple-600" />
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Reposições</p>
-              <p className="text-xl font-bold">{bookings.filter((b) => b.bookingType === 'reposition').length}</p>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Reposition Dialog */}
       <Dialog open={reposOpen} onOpenChange={setReposOpen}>

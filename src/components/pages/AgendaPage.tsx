@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Select,
   SelectContent,
@@ -13,7 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Calendar, Clock, Check, AlertCircle, User, Loader2 } from 'lucide-react';
+import { Calendar, Clock, Check, AlertCircle, User, Loader2, RotateCcw, StickyNote } from 'lucide-react';
 import { toast } from 'sonner';
 import { format, addDays, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -32,6 +34,15 @@ interface Student {
   email: string;
 }
 
+interface CancelledBooking {
+  id: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  studentName: string;
+  teacher?: { name: string };
+}
+
 const dayNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
 export function AgendaPage() {
@@ -45,6 +56,12 @@ export function AgendaPage() {
   const [submitting, setSubmitting] = useState(false);
   const [availableSlots, setAvailableSlots] = useState<{ startTime: string; endTime: string; available: boolean; reason?: string }[]>([]);
   const [refreshKey, setRefreshKey] = useState(0);
+
+  // New fields for reposição and notes
+  const [isReposition, setIsReposition] = useState(false);
+  const [originalBookingId, setOriginalBookingId] = useState('');
+  const [cancelledBookings, setCancelledBookings] = useState<CancelledBooking[]>([]);
+  const [notes, setNotes] = useState('');
 
   const loadData = useCallback(async () => {
     try {
@@ -66,6 +83,20 @@ export function AgendaPage() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // Load cancelled bookings when reposition checkbox is checked
+  useEffect(() => {
+    if (isReposition) {
+      fetch('/api/bookings?status=cancelled')
+        .then((r) => r.json())
+        .then((data) => {
+          setCancelledBookings(data.bookings || []);
+        })
+        .catch(() => {
+          setCancelledBookings([]);
+        });
+    }
+  }, [isReposition]);
 
   // When teacher or date changes, compute available slots
   useEffect(() => {
@@ -158,23 +189,36 @@ export function AgendaPage() {
       return;
     }
 
+    if (isReposition && !originalBookingId) {
+      toast.error('Selecione a aula cancelada para a reposição');
+      return;
+    }
+
     const student = students.find((s) => s.id === selectedStudent);
     if (!student) return;
 
     setSubmitting(true);
     try {
+      const body: Record<string, unknown> = {
+        teacherId: selectedTeacher,
+        studentName: student.name,
+        studentEmail: student.email,
+        studentProfileId: student.id,
+        date: selectedDate,
+        startTime: selectedSlot.startTime,
+        endTime: selectedSlot.endTime,
+        notes: notes,
+        bookingType: isReposition ? 'reposition' : 'normal',
+      };
+
+      if (isReposition) {
+        body.originalBookingId = originalBookingId;
+      }
+
       const res = await fetch('/api/bookings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          teacherId: selectedTeacher,
-          studentName: student.name,
-          studentEmail: student.email,
-          studentProfileId: student.id,
-          date: selectedDate,
-          startTime: selectedSlot.startTime,
-          endTime: selectedSlot.endTime,
-        }),
+        body: JSON.stringify(body),
       });
 
       const data = await res.json();
@@ -182,8 +226,11 @@ export function AgendaPage() {
         throw new Error(data.error || 'Erro ao criar agendamento');
       }
 
-      toast.success('Agendamento criado com sucesso!');
+      toast.success(isReposition ? 'Reposição agendada com sucesso!' : 'Agendamento criado com sucesso!');
       setSelectedSlot(null);
+      setNotes('');
+      setIsReposition(false);
+      setOriginalBookingId('');
       setRefreshKey((k) => k + 1);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Erro ao criar agendamento');
@@ -327,6 +374,77 @@ export function AgendaPage() {
         </Card>
       </div>
 
+      {/* Reposition & Notes Section */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <StickyNote className="size-4 text-emerald-600" />
+            Detalhes Adicionais
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Reposition Checkbox */}
+          <div className="flex items-center gap-3 p-3 rounded-lg bg-purple-50 border border-purple-200">
+            <Checkbox
+              id="isReposition"
+              checked={isReposition}
+              onCheckedChange={(checked) => {
+                setIsReposition(checked === true);
+                if (!checked) {
+                  setOriginalBookingId('');
+                }
+              }}
+            />
+            <div className="flex-1">
+              <Label htmlFor="isReposition" className="cursor-pointer font-medium text-purple-700">
+                <RotateCcw className="size-4 inline mr-1" />
+                Reposição de Aula
+              </Label>
+              <p className="text-xs text-purple-600">Marque se este agendamento é uma reposição</p>
+            </div>
+          </div>
+
+          {/* Original Booking Selector (only if reposition) */}
+          {isReposition && (
+            <div className="space-y-2">
+              <Label>Aula Cancelada (Original)</Label>
+              <Select value={originalBookingId} onValueChange={setOriginalBookingId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione a aula cancelada" />
+                </SelectTrigger>
+                <SelectContent>
+                  {cancelledBookings.length === 0 ? (
+                    <div className="p-2 text-sm text-muted-foreground text-center">
+                      Nenhuma aula cancelada encontrada
+                    </div>
+                  ) : (
+                    cancelledBookings.map((b) => (
+                      <SelectItem key={b.id} value={b.id}>
+                        {b.date} • {b.startTime}-{b.endTime} • {b.studentName} • {b.teacher?.name || 'Professor'}
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {/* Notes */}
+          <div className="space-y-2">
+            <Label className="flex items-center gap-1">
+              <StickyNote className="size-4" />
+              Observações
+            </Label>
+            <Textarea
+              placeholder="Ex: Matéria, livro, capítulo, tema da aula..."
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={3}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Available Slots */}
       {selectedTeacher && selectedDate && (
         <Card>
@@ -362,7 +480,9 @@ export function AgendaPage() {
                       !slot.available
                         ? 'opacity-50 cursor-not-allowed bg-gray-50 border-gray-200 text-gray-400'
                         : selectedSlot?.startTime === slot.startTime && selectedSlot?.endTime === slot.endTime
-                        ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                        ? isReposition
+                          ? 'bg-purple-600 hover:bg-purple-700 text-white'
+                          : 'bg-emerald-600 hover:bg-emerald-700 text-white'
                         : 'hover:bg-emerald-50 hover:border-emerald-200'
                     }`}
                     disabled={!slot.available}
@@ -386,30 +506,40 @@ export function AgendaPage() {
             )}
 
             {selectedSlot && (
-              <div className="mt-4 p-4 bg-emerald-50 rounded-lg border border-emerald-200">
+              <div className={`mt-4 p-4 rounded-lg border ${
+                isReposition
+                  ? 'bg-purple-50 border-purple-200'
+                  : 'bg-emerald-50 border-emerald-200'
+              }`}>
                 <div className="flex items-center justify-between flex-wrap gap-4">
                   <div className="flex items-center gap-3">
-                    <Check className="size-5 text-emerald-600" />
+                    <Check className={`size-5 ${isReposition ? 'text-purple-600' : 'text-emerald-600'}`} />
                     <div>
-                      <p className="font-medium text-emerald-800">
+                      <p className={`font-medium ${isReposition ? 'text-purple-800' : 'text-emerald-800'}`}>
                         {selectedSlot.startTime} - {selectedSlot.endTime}
                       </p>
-                      <p className="text-sm text-emerald-600">
+                      <p className={`text-sm ${isReposition ? 'text-purple-600' : 'text-emerald-600'}`}>
                         {teacher?.name} • {students.find((s) => s.id === selectedStudent)?.name || 'Selecione um aluno'}
+                        {isReposition && ' • Reposição'}
                       </p>
+                      {notes && (
+                        <p className="text-xs text-muted-foreground mt-1">{notes}</p>
+                      )}
                     </div>
                   </div>
                   <Button
                     onClick={handleBooking}
                     disabled={!selectedStudent || submitting}
-                    className="bg-emerald-600 hover:bg-emerald-700"
+                    className={isReposition ? 'bg-purple-600 hover:bg-purple-700' : 'bg-emerald-600 hover:bg-emerald-700'}
                   >
                     {submitting ? (
                       <Loader2 className="size-4 mr-2 animate-spin" />
+                    ) : isReposition ? (
+                      <RotateCcw className="size-4 mr-2" />
                     ) : (
                       <Check className="size-4 mr-2" />
                     )}
-                    Confirmar Agendamento
+                    {isReposition ? 'Confirmar Reposição' : 'Confirmar Agendamento'}
                   </Button>
                 </div>
               </div>
