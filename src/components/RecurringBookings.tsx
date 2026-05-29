@@ -61,7 +61,10 @@ export default function RecurringBookingsManager({
     try {
       const params = teacherId ? `?teacherId=${teacherId}` : '';
       const res = await fetch(`/api/recurring-bookings${params}`);
-      if (res.ok) setBookings(await res.json());
+      if (res.ok) {
+        const data = await res.json();
+        setBookings(data.recurringBookings || []);
+      }
     } catch {
       toast.error('Erro ao buscar agendamentos recorrentes');
     }

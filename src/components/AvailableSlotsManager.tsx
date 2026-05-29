@@ -41,7 +41,7 @@ export default function AvailableSlotsManager({ teacherId, onUpdate }: { teacher
       const res = await fetch(`/api/teachers/${teacherId}/available-slots`);
       if (res.ok) {
         const data = await res.json();
-        setSlots(data);
+        setSlots(data.slots || []);
       }
     } catch {
       toast.error('Erro ao buscar horários');
