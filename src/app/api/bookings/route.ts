@@ -55,7 +55,7 @@ export async function GET(request: NextRequest) {
       orderBy: [{ date: 'asc' }, { start_time: 'asc' }],
     });
 
-    const tIds = [...new Set((bookings as Row[]).map(b => b['teacher_id'] as string))];
+    const tIds = [...new Set((bookings as Row[]).map(b => b['teacherId'] as string))];
     const teachers = tIds.length
       ? await db.teacher.findMany({ where: { id: { in: tIds } } })
       : [];
@@ -63,14 +63,15 @@ export async function GET(request: NextRequest) {
 
     const enriched = (bookings as Row[]).map(b => ({
       ...b,
-      startTime:         b['start_time'],
-      endTime:           b['end_time'],
-      studentName:       b['student_name'],
-      studentEmail:      b['student_email'],
-      bookingType:       b['booking_type'],
-      originalBookingId: b['original_booking_id'],
-      teacherName:       (tMap.get(b['teacher_id'] as string) as Row | null)?.['name'] ?? '',
-      teacher:           tMap.get(b['teacher_id'] as string) || null,
+      // Fields already camelCase after toCamel — keep explicit aliases for API consumers
+      startTime:         b['startTime'],
+      endTime:           b['endTime'],
+      studentName:       b['studentName'],
+      studentEmail:      b['studentEmail'],
+      bookingType:       b['bookingType'],
+      originalBookingId: b['originalBookingId'],
+      teacherName:       (tMap.get(b['teacherId'] as string) as Row | null)?.['name'] ?? '',
+      teacher:           tMap.get(b['teacherId'] as string) || null,
     }));
 
     return NextResponse.json({ bookings: enriched });
