@@ -183,7 +183,7 @@ export function CalendarioPage() {
     const dateObj = new Date(bookingDate + 'T12:00:00');
     const dayOfWeek = dateObj.getDay();
 
-    const daySlots = (teacher.availableSlots || [])
+    const daySlots = teacher.availableSlots
       .filter((s) => s.dayOfWeek === dayOfWeek)
       .sort((a, b) => a.startTime.localeCompare(b.startTime));
 
@@ -289,7 +289,7 @@ export function CalendarioPage() {
     );
     const dow = getDay(date);
     const hasAvailableSlots = teachers.some((t) =>
-      (t.availableSlots || []).some((s) => s.dayOfWeek === dow)
+      t.availableSlots.some((s) => s.dayOfWeek === dow)
     );
 
     return {
