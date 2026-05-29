@@ -12,6 +12,7 @@ import { CalendarioPage } from '@/components/pages/CalendarioPage';
 import { FeriadosPage } from '@/components/pages/FeriadosPage';
 import { RecessosPage } from '@/components/pages/RecessosPage';
 import { AgendamentosPage } from '@/components/pages/AgendamentosPage';
+import { ReposicoesPage } from '@/components/pages/ReposicoesPage';
 import { RelatoriosPage } from '@/components/pages/RelatoriosPage';
 import { ExportarPage } from '@/components/pages/ExportarPage';
 import { ConfiguracoesPage } from '@/components/pages/ConfiguracoesPage';
@@ -32,6 +33,7 @@ const pageLabels: Record<PageKey, string> = {
   feriados: 'Feriados',
   recessos: 'Recessos',
   agendamentos: 'Agendamentos',
+  reposicoes: 'Reposições',
   relatorios: 'Relatórios',
   exportar: 'Exportar',
   configuracoes: 'Configurações',
@@ -46,6 +48,7 @@ const pageComponents: Record<PageKey, React.ComponentType> = {
   feriados: FeriadosPage,
   recessos: RecessosPage,
   agendamentos: AgendamentosPage,
+  reposicoes: ReposicoesPage,
   relatorios: RelatoriosPage,
   exportar: ExportarPage,
   configuracoes: ConfiguracoesPage,

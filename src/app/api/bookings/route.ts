@@ -12,12 +12,14 @@ export async function GET(request: NextRequest) {
     const date = searchParams.get('date');
     const weekStartStr = searchParams.get('weekStart');
     const status = searchParams.get('status');
+    const bookingType = searchParams.get('bookingType');
 
     const where: Row = {};
     if (teacherId) where['teacher_id'] = teacherId;
     if (studentProfileId) where['student_profile_id'] = studentProfileId;
     if (date) where['date'] = date;
     if (status) where['status'] = status;
+    if (bookingType) where['booking_type'] = bookingType;
 
     if (weekStartStr) {
       const weekStart = parse(weekStartStr, 'yyyy-MM-dd', new Date());
@@ -34,15 +36,7 @@ export async function GET(request: NextRequest) {
     const tIds = [...new Set((bookings as Row[]).map(b => b['teacher_id'] as string))];
     const teachers = tIds.length ? await db.teacher.findMany({ where: { id: { in: tIds } } }) : [];
     const tMap = new Map((teachers as Row[]).map(t => [t['id'], t]));
-    const enriched = (bookings as Row[]).map(b => ({
-      ...b,
-      // camelCase aliases for the frontend
-      startTime:   b['start_time'],
-      endTime:     b['end_time'],
-      studentName: b['student_name'],
-      teacherName: (tMap.get(b['teacher_id'] as string) as Row | null)?.['name'] ?? '',
-      teacher:     tMap.get(b['teacher_id'] as string) || null,
-    }));
+    const enriched = (bookings as Row[]).map(b => ({ ...b, teacher: tMap.get(b['teacher_id'] as string) || null }));
 
     return NextResponse.json({ bookings: enriched });
   } catch (error) {
@@ -53,11 +47,37 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json() as { teacherId: string; studentName: string; studentEmail?: string; date: string; startTime: string; endTime: string; studentProfileId?: string };
-    const { teacherId, studentName, studentEmail, date, startTime, endTime, studentProfileId, notes } = body as { teacherId: string; studentName: string; studentEmail?: string; date: string; startTime: string; endTime: string; studentProfileId?: string; notes?: string };
+    const body = await request.json() as {
+      teacherId: string;
+      studentName: string;
+      studentEmail?: string;
+      date: string;
+      startTime: string;
+      endTime: string;
+      studentProfileId?: string;
+      bookingType?: string;
+      originalBookingId?: string;
+      notes?: string;
+    };
+    const {
+      teacherId,
+      studentName,
+      studentEmail,
+      date,
+      startTime,
+      endTime,
+      studentProfileId,
+      bookingType = 'normal',
+      originalBookingId,
+      notes = '',
+    } = body;
 
     if (!teacherId || !studentName || !date || !startTime || !endTime) {
       return NextResponse.json({ error: 'Preencha todos os campos obrigatórios' }, { status: 400 });
+    }
+
+    if (bookingType === 'reposition' && !originalBookingId) {
+      return NextResponse.json({ error: 'Reposição precisa de um agendamento original' }, { status: 400 });
     }
 
     const dayOfWeek = new Date(date + 'T12:00:00').getDay();
@@ -80,20 +100,25 @@ export async function POST(request: NextRequest) {
     if (recess) return NextResponse.json({ error: 'Período de recesso' }, { status: 400 });
     if (blockedPeriod) return NextResponse.json({ error: 'Professor indisponível nesta data' }, { status: 400 });
 
-    const booking = await db.booking.create({
-      data: {
-        teacher_id: teacherId,
-        student_name: studentName,
-        student_email: studentEmail || null,
-        student_profile_id: studentProfileId || null,
-        date,
-        day_of_week: dayOfWeek,
-        start_time: startTime,
-        end_time: endTime,
-        status: 'confirmed',
-        notes: notes || null,
-      },
-    });
+    const data: Row = {
+      teacher_id: teacherId,
+      student_name: studentName,
+      student_email: studentEmail || null,
+      student_profile_id: studentProfileId || null,
+      date,
+      day_of_week: dayOfWeek,
+      start_time: startTime,
+      end_time: endTime,
+      status: 'confirmed',
+      booking_type: bookingType,
+      notes,
+    };
+
+    if (originalBookingId) {
+      data['original_booking_id'] = originalBookingId;
+    }
+
+    const booking = await db.booking.create({ data });
 
     return NextResponse.json({ booking }, { status: 201 });
   } catch (error) {

@@ -1,19 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 
+type Row = Record<string, unknown>;
+
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
     const body = await request.json();
-    const { status } = body;
+    const { status, notes, bookingType, originalBookingId } = body;
 
-    if (!['confirmed', 'cancelled', 'completed'].includes(status)) {
+    if (status && !['confirmed', 'cancelled', 'completed'].includes(status)) {
       return NextResponse.json({ error: 'Status inválido' }, { status: 400 });
+    }
+
+    const data: Row = {};
+    if (status) data['status'] = status;
+    if (notes !== undefined) data['notes'] = notes;
+    if (bookingType) data['booking_type'] = bookingType;
+    if (originalBookingId !== undefined) data['original_booking_id'] = originalBookingId;
+
+    // Always update the updated_at timestamp
+    data['updated_at'] = new Date().toISOString();
+
+    if (Object.keys(data).length === 0) {
+      return NextResponse.json({ error: 'Nenhum campo para atualizar' }, { status: 400 });
     }
 
     const booking = await db.booking.update({
       where: { id },
-      data: { status },
+      data,
     });
 
     return NextResponse.json({ booking });
