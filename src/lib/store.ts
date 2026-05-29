@@ -18,6 +18,7 @@ export type PageKey =
   | 'feriados' 
   | 'recessos' 
   | 'agendamentos' 
+  | 'reposicoes'
   | 'relatorios' 
   | 'exportar' 
   | 'configuracoes';
