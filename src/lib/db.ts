@@ -13,6 +13,29 @@ if (!SUPABASE_URL || !SUPABASE_KEY) {
 type Row = Record<string, unknown>;
 type OrderDir = 'asc' | 'desc';
 
+// ---------------------------------------------------------------------------
+// snake_case → camelCase conversion
+// Supabase / PostgREST returns column names as-is (snake_case). All route and
+// component code was written expecting camelCase keys (dayOfWeek, startTime …).
+// These helpers bridge the gap so we don't have to rename every accessor.
+// ---------------------------------------------------------------------------
+function snakeToCamel(s: string): string {
+  return s.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
+}
+
+function toCamel<T>(obj: T): T {
+  if (Array.isArray(obj)) return (obj as unknown[]).map(toCamel) as unknown as T;
+  if (obj !== null && typeof obj === 'object') {
+    return Object.fromEntries(
+      Object.entries(obj as Record<string, unknown>).map(([k, v]) => [
+        snakeToCamel(k),
+        toCamel(v),
+      ])
+    ) as T;
+  }
+  return obj;
+}
+
 interface FindManyOptions {
   where?: Row;
   orderBy?: { [field: string]: OrderDir } | Array<{ [field: string]: OrderDir }>;
@@ -91,17 +114,18 @@ function buildQuery(table: string, opts: FindManyOptions = {}): string {
 function makeTable<T extends Row>(table: string) {
   return {
     async findMany(opts: FindManyOptions = {}): Promise<T[]> {
-      return sbFetch<T[]>(buildQuery(table, opts));
+      const rows = await sbFetch<T[]>(buildQuery(table, opts));
+      return toCamel(rows);
     },
 
     async findUnique(opts: { where: Row }): Promise<T | null> {
       const rows = await sbFetch<T[]>(buildQuery(table, { where: opts.where, take: 1 }));
-      return rows[0] ?? null;
+      return toCamel(rows[0] ?? null);
     },
 
     async findFirst(opts: { where: Row }): Promise<T | null> {
       const rows = await sbFetch<T[]>(buildQuery(table, { where: opts.where, take: 1 }));
-      return rows[0] ?? null;
+      return toCamel(rows[0] ?? null);
     },
 
     async create(opts: { data: Row }): Promise<T> {
@@ -110,7 +134,7 @@ function makeTable<T extends Row>(table: string) {
         body: JSON.stringify(opts.data),
       });
       if (!rows[0]) throw new Error(`[db] create(${table}) sem retorno — verifique RLS e constraints`);
-      return rows[0];
+      return toCamel(rows[0]);
     },
 
     async update(opts: { where: Row; data: Row }): Promise<T> {
@@ -121,7 +145,7 @@ function makeTable<T extends Row>(table: string) {
         method: 'PATCH',
         body: JSON.stringify(opts.data),
       });
-      return rows[0];
+      return toCamel(rows[0]);
     },
 
     async delete(opts: { where: Row }): Promise<void> {
