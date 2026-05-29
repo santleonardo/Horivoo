@@ -1,6 +1,9 @@
 /**
  * db.ts — Cliente Supabase (PostgREST)
+ * Todas as respostas são automaticamente convertidas de snake_case para camelCase.
  */
+
+import { toCamel } from './utils';
 
 const SUPABASE_URL = (process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace(/\/$/, '');
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
@@ -46,7 +49,9 @@ async function sbFetch<T = unknown>(
 
   const text = await res.text();
   if (!text || text === 'null') return [] as unknown as T;
-  return JSON.parse(text) as T;
+  const parsed = JSON.parse(text);
+  // Auto-transform snake_case → camelCase for all Supabase responses
+  return toCamel(parsed) as T;
 }
 
 function buildQuery(table: string, opts: FindManyOptions = {}): string {
