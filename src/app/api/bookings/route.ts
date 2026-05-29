@@ -36,7 +36,18 @@ export async function GET(request: NextRequest) {
     const tIds = [...new Set((bookings as Row[]).map(b => b['teacher_id'] as string))];
     const teachers = tIds.length ? await db.teacher.findMany({ where: { id: { in: tIds } } }) : [];
     const tMap = new Map((teachers as Row[]).map(t => [t['id'], t]));
-    const enriched = (bookings as Row[]).map(b => ({ ...b, teacher: tMap.get(b['teacher_id'] as string) || null }));
+    const enriched = (bookings as Row[]).map(b => ({
+      ...b,
+      // camelCase aliases for the frontend
+      startTime:   b['start_time'],
+      endTime:     b['end_time'],
+      studentName: b['student_name'],
+      studentEmail: b['student_email'],
+      bookingType: b['booking_type'],
+      originalBookingId: b['original_booking_id'],
+      teacherName: (tMap.get(b['teacher_id'] as string) as Row | null)?.['name'] ?? '',
+      teacher:     tMap.get(b['teacher_id'] as string) || null,
+    }));
 
     return NextResponse.json({ bookings: enriched });
   } catch (error) {
