@@ -36,8 +36,8 @@ export async function GET(req: NextRequest) {
     // Enrich with user names
     const userIds = new Set<string>();
     msgs.forEach(m => {
-      if (m.sender_id)   userIds.add(m.sender_id as string);
-      if (m.receiver_id) userIds.add(m.receiver_id as string);
+      if (m.senderId)   userIds.add(m.senderId as string);
+      if (m.receiverId) userIds.add(m.receiverId as string);
     });
 
     const users = await db.user.findMany({
@@ -48,13 +48,13 @@ export async function GET(req: NextRequest) {
 
     const enriched = msgs.map(m => ({
       ...m,
-      sender:   userMap[m.sender_id as string]   || { name: 'Desconhecido' },
-      receiver: userMap[m.receiver_id as string] || { name: 'Desconhecido' },
+      sender:   userMap[m.senderId as string]   || { name: 'Desconhecido' },
+      receiver: userMap[m.receiverId as string] || { name: 'Desconhecido' },
     }));
 
     // Count unread in inbox
     const unread = box === 'inbox'
-      ? enriched.filter(m => !m.read).length
+      ? enriched.filter(m => !(m as MsgRow)['read']).length
       : 0;
 
     return NextResponse.json({ messages: enriched, unread });
