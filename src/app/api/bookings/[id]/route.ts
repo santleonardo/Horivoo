@@ -13,6 +13,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       return NextResponse.json({ error: 'Status inválido' }, { status: 400 });
     }
 
+    // update data uses snake_case for PostgREST columns
     const data: Row = {};
     if (status) data['status'] = status;
     if (notes !== undefined) data['notes'] = notes;

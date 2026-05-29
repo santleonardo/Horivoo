@@ -8,14 +8,14 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const teacherId = searchParams.get('teacherId');
     const where: Row = {};
-    if (teacherId) where.teacher_id = teacherId;
+    if (teacherId) where['teacher_id'] = teacherId;
     const recurringBookings = await db.recurringBooking.findMany({ where, orderBy: [{ day_of_week: 'asc' }, { start_time: 'asc' }] });
 
-    // Enrich with teacher names
-    const tIds = [...new Set((recurringBookings as Row[]).map(r => r.teacher_id as string))];
+    // After toCamel, fields are camelCase
+    const tIds = [...new Set((recurringBookings as Row[]).map(r => r['teacherId'] as string))];
     const teachers = tIds.length ? await db.teacher.findMany({ where: { id: { in: tIds } } }) : [];
-    const tMap = new Map((teachers as Row[]).map(t => [t.id, t]));
-    const enriched = (recurringBookings as Row[]).map(r => ({ ...r, teacher: tMap.get(r.teacher_id as string) || null }));
+    const tMap = new Map((teachers as Row[]).map(t => [t['id'], t]));
+    const enriched = (recurringBookings as Row[]).map(r => ({ ...r, teacher: tMap.get(r['teacherId'] as string) || null }));
 
     return NextResponse.json({ recurringBookings: enriched });
   } catch (error) {

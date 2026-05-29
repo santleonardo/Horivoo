@@ -1,26 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 
+type Row = Record<string, unknown>;
+
 export async function GET() {
   try {
     const teachers = await db.teacher.findMany({ orderBy: { name: 'asc' } });
 
     // Fetch available slots and blocked periods for each teacher
-    const teacherIds = (teachers as Record<string, unknown>[]).map(t => t.id as string);
+    const teacherIds = (teachers as Row[]).map(t => t['id'] as string);
     const [availableSlots, blockedPeriods] = await Promise.all([
       teacherIds.length ? db.availableSlot.findMany({ where: { teacher_id: { in: teacherIds } } }) : [],
       teacherIds.length ? db.blockedPeriod.findMany({ where: { teacher_id: { in: teacherIds } } }) : [],
     ]);
 
+    // After toCamel, nested objects also have camelCase keys
     return NextResponse.json({
-      teachers: (teachers as Record<string, unknown>[]).map(t => ({
-        id: t.id,
-        name: t.name,
-        email: t.email,
-        subjects: t.subjects,
-        bio: t.bio,
-        availableSlots: (availableSlots as Record<string, unknown>[]).filter(s => s.teacher_id === t.id),
-        blockedPeriods: (blockedPeriods as Record<string, unknown>[]).filter(p => p.teacher_id === t.id),
+      teachers: (teachers as Row[]).map(t => ({
+        ...t,
+        availableSlots: (availableSlots as Row[]).filter(s => s['teacherId'] === t['id']),
+        blockedPeriods: (blockedPeriods as Row[]).filter(p => p['teacherId'] === t['id']),
       })),
     });
   } catch (error) {

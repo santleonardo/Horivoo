@@ -26,6 +26,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       db.recurringBooking.findMany({ where: { teacher_id: id, active: true } }),
     ]);
 
+    // After toCamel, all fields are camelCase
     const DAY_NAMES = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
     const schedule: Row[] = [];
 
@@ -35,17 +36,17 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
       const nonClassDay = (nonClassDays as Row[]).find(n => n['date'] === date);
       const holiday = (holidays as Row[]).find(h => h['date'] === date);
-      const daySlots = (availableSlots as Row[]).filter(s => s['day_of_week'] === dayOfWeek);
+      const daySlots = (availableSlots as Row[]).filter(s => s['dayOfWeek'] === dayOfWeek);
 
       const slots = daySlots.map(slot => {
-        if (nonClassDay || holiday) return { startTime: slot['start_time'], endTime: slot['end_time'], status: 'non_class_day' };
-        const bl = (blockedSlots as Row[]).find(b => b['date'] === date && b['start_time'] === slot['start_time']);
-        if (bl) return { startTime: slot['start_time'], endTime: slot['end_time'], status: 'blocked', blockedSlot: { id: bl['id'], reason: bl['reason'] } };
-        const bk = (bookings as Row[]).find(b => b['date'] === date && b['start_time'] === slot['start_time']);
-        if (bk) return { startTime: slot['start_time'], endTime: slot['end_time'], status: 'booked', booking: { id: bk['id'], studentName: bk['student_name'], studentEmail: bk['student_email'], recurring: !!bk['recurring_id'] } };
-        const rec = (recurringBookings as Row[]).find(r => r['day_of_week'] === dayOfWeek && r['start_time'] === slot['start_time']);
-        if (rec) return { startTime: slot['start_time'], endTime: slot['end_time'], status: 'booked', booking: { studentName: rec['student_name'], recurring: true, recurringId: rec['id'] } };
-        return { startTime: slot['start_time'], endTime: slot['end_time'], status: 'available' };
+        if (nonClassDay || holiday) return { startTime: slot['startTime'], endTime: slot['endTime'], status: 'non_class_day' };
+        const bl = (blockedSlots as Row[]).find(b => b['date'] === date && b['startTime'] === slot['startTime']);
+        if (bl) return { startTime: slot['startTime'], endTime: slot['endTime'], status: 'blocked', blockedSlot: { id: bl['id'], reason: bl['reason'] } };
+        const bk = (bookings as Row[]).find(b => b['date'] === date && b['startTime'] === slot['startTime']);
+        if (bk) return { startTime: slot['startTime'], endTime: slot['endTime'], status: 'booked', booking: { id: bk['id'], studentName: bk['studentName'], studentEmail: bk['studentEmail'], recurring: !!bk['recurringId'] } };
+        const rec = (recurringBookings as Row[]).find(r => r['dayOfWeek'] === dayOfWeek && r['startTime'] === slot['startTime']);
+        if (rec) return { startTime: slot['startTime'], endTime: slot['endTime'], status: 'booked', booking: { studentName: rec['studentName'], recurring: true, recurringId: rec['id'] } };
+        return { startTime: slot['startTime'], endTime: slot['endTime'], status: 'available' };
       });
 
       schedule.push({

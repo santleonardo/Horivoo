@@ -9,8 +9,9 @@ export async function GET(request: NextRequest) {
     const teacherId = searchParams.get('teacherId');
     const date = searchParams.get('date');
     const where: Row = {};
-    if (teacherId) where.teacher_id = teacherId;
-    if (date) where.date = date;
+    if (teacherId) where['teacher_id'] = teacherId;
+    if (date) where['date'] = date;
+    // db returns camelCase after toCamel
     const blockedSlots = await db.blockedSlot.findMany({ where, orderBy: [{ date: 'asc' }, { start_time: 'asc' }] });
     return NextResponse.json({ blockedSlots });
   } catch (error) {

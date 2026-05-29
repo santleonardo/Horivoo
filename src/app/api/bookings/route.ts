@@ -14,6 +14,7 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get('status');
     const bookingType = searchParams.get('bookingType');
 
+    // where clause uses snake_case for PostgREST query params
     const where: Row = {};
     if (teacherId) where['teacher_id'] = teacherId;
     if (studentProfileId) where['student_profile_id'] = studentProfileId;
@@ -28,26 +29,17 @@ export async function GET(request: NextRequest) {
       where['date'] = { in: weekDates };
     }
 
+    // orderBy uses snake_case for PostgREST
     const bookings = await db.booking.findMany({
       where,
       orderBy: [{ date: 'asc' }, { start_time: 'asc' }],
     });
 
-    const tIds = [...new Set((bookings as Row[]).map(b => b['teacher_id'] as string))];
+    // After toCamel, fields are camelCase
+    const tIds = [...new Set((bookings as Row[]).map(b => b['teacherId'] as string))];
     const teachers = tIds.length ? await db.teacher.findMany({ where: { id: { in: tIds } } }) : [];
     const tMap = new Map((teachers as Row[]).map(t => [t['id'], t]));
-    const enriched = (bookings as Row[]).map(b => ({
-      ...b,
-      // camelCase aliases for the frontend
-      startTime:   b['start_time'],
-      endTime:     b['end_time'],
-      studentName: b['student_name'],
-      studentEmail: b['student_email'],
-      bookingType: b['booking_type'],
-      originalBookingId: b['original_booking_id'],
-      teacherName: (tMap.get(b['teacher_id'] as string) as Row | null)?.['name'] ?? '',
-      teacher:     tMap.get(b['teacher_id'] as string) || null,
-    }));
+    const enriched = (bookings as Row[]).map(b => ({ ...b, teacher: tMap.get(b['teacherId'] as string) || null }));
 
     return NextResponse.json({ bookings: enriched });
   } catch (error) {
@@ -93,6 +85,7 @@ export async function POST(request: NextRequest) {
 
     const dayOfWeek = new Date(date + 'T12:00:00').getDay();
 
+    // where clauses use snake_case for PostgREST
     const [avail, existing, blocked, nonClass, holiday, recess, blockedPeriod] = await Promise.all([
       db.availableSlot.findFirst({ where: { teacher_id: teacherId, day_of_week: dayOfWeek, start_time: startTime, end_time: endTime } }),
       db.booking.findFirst({ where: { teacher_id: teacherId, date, start_time: startTime, status: 'confirmed' } }),
@@ -111,6 +104,7 @@ export async function POST(request: NextRequest) {
     if (recess) return NextResponse.json({ error: 'Período de recesso' }, { status: 400 });
     if (blockedPeriod) return NextResponse.json({ error: 'Professor indisponível nesta data' }, { status: 400 });
 
+    // create data uses snake_case for PostgREST columns
     const data: Row = {
       teacher_id: teacherId,
       student_name: studentName,

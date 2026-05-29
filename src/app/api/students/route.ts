@@ -3,20 +3,12 @@ import { db } from '@/lib/db';
 
 export async function GET() {
   try {
+    // db returns camelCase after toCamel transformation
     const students = await db.student.findMany({
       orderBy: { name: 'asc' },
     });
 
-    return NextResponse.json({
-      students: students.map(s => ({
-        id: s.id,
-        name: s.name,
-        email: s.email,
-        phone: s.phone,
-        user_id: s.userId,
-        created_at: s.createdAt,
-      })),
-    });
+    return NextResponse.json({ students });
   } catch (error) {
     console.error('Error fetching students:', error);
     return NextResponse.json({ error: 'Erro ao buscar alunos' }, { status: 500 });

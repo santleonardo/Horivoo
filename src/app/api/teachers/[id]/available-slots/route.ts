@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 
-type Row = Record<string, unknown>;
-
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
+    // db returns camelCase after toCamel transformation
     const slots = await db.availableSlot.findMany({ where: { teacher_id: id }, orderBy: [{ day_of_week: 'asc' }, { start_time: 'asc' }] });
-    return NextResponse.json({ slots: (slots as Row[]).map(s => ({ id: s.id, dayOfWeek: s.day_of_week, startTime: s.start_time, endTime: s.end_time })) });
+    return NextResponse.json({ slots });
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: 'Erro ao buscar horários' }, { status: 500 });

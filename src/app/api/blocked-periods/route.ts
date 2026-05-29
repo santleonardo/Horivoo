@@ -8,7 +8,8 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const teacherId = searchParams.get('teacherId');
     const where: Row = {};
-    if (teacherId) where.teacher_id = teacherId;
+    if (teacherId) where['teacher_id'] = teacherId;
+    // db returns camelCase after toCamel
     const blockedPeriods = await db.blockedPeriod.findMany({ where, orderBy: { start_date: 'asc' } });
     return NextResponse.json({ blockedPeriods });
   } catch (error) {

@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
     }
 
     const where: Row = { date: { in: dates } };
-    if (teacherId) where.teacher_id = teacherId;
+    if (teacherId) where['teacher_id'] = teacherId;
 
     const [bookings, availableSlots, blockedSlots, nonClassDays, holidays] = await Promise.all([
       db.booking.findMany({ where, orderBy: [{ date: 'asc' }, { start_time: 'asc' }] }),
@@ -36,26 +36,26 @@ export async function GET(request: NextRequest) {
       db.holiday.findMany({ where: { date: { in: dates } } }),
     ]);
 
-    // Get teacher names
+    // After toCamel, fields are camelCase
     const tIds = [...new Set([
-      ...(bookings as Row[]).map(b => b.teacher_id as string),
-      ...(availableSlots as Row[]).map(s => s.teacher_id as string),
+      ...(bookings as Row[]).map(b => b['teacherId'] as string),
+      ...(availableSlots as Row[]).map(s => s['teacherId'] as string),
     ])];
     const teachers = tIds.length ? await db.teacher.findMany({ where: { id: { in: tIds } } }) : [];
-    const tMap = new Map((teachers as Row[]).map(t => [t.id as string, t.name as string]));
+    const tMap = new Map((teachers as Row[]).map(t => [t['id'] as string, t['name'] as string]));
 
     const dayNames = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 
     if (formatType === 'csv') {
-      const bookedKeys = new Set((bookings as Row[]).map(b => `${b.date}-${b.start_time}-${b.teacher_id}`));
-      const blockedKeys = new Set((blockedSlots as Row[]).map(b => `${b.date}-${b.start_time}-${b.teacher_id}`));
-      const nonClassSet = new Set((nonClassDays as Row[]).map(n => n.date as string));
-      const holidaySet = new Set((holidays as Row[]).map(h => h.date as string));
+      const bookedKeys = new Set((bookings as Row[]).map(b => `${b['date']}-${b['startTime']}-${b['teacherId']}`));
+      const blockedKeys = new Set((blockedSlots as Row[]).map(b => `${b['date']}-${b['startTime']}-${b['teacherId']}`));
+      const nonClassSet = new Set((nonClassDays as Row[]).map(n => n['date'] as string));
+      const holidaySet = new Set((holidays as Row[]).map(h => h['date'] as string));
 
       const rows: string[] = [];
       for (const b of bookings as Row[]) {
-        const d = new Date((b.date as string) + 'T12:00:00');
-        rows.push(`${b.date},${dayNames[d.getDay()]},${b.start_time}-${b.end_time},${tMap.get(b.teacher_id as string) || ''},${b.student_name},Agendado`);
+        const d = new Date((b['date'] as string) + 'T12:00:00');
+        rows.push(`${b['date']},${dayNames[d.getDay()]},${b['startTime']}-${b['endTime']},${tMap.get(b['teacherId'] as string) || ''},${b['studentName']},Agendado`);
       }
       for (const date of dates) {
         const d = new Date(date + 'T12:00:00');
@@ -63,13 +63,13 @@ export async function GET(request: NextRequest) {
         const dayName = dayNames[dow];
         const isNCD = nonClassSet.has(date);
         const isHol = holidaySet.has(date);
-        for (const slot of (availableSlots as Row[]).filter(s => s.day_of_week === dow)) {
-          const key = `${date}-${slot.start_time}-${slot.teacher_id}`;
+        for (const slot of (availableSlots as Row[]).filter(s => s['dayOfWeek'] === dow)) {
+          const key = `${date}-${slot['startTime']}-${slot['teacherId']}`;
           if (bookedKeys.has(key)) continue;
-          const tName = tMap.get(slot.teacher_id as string) || '';
-          if (isNCD || isHol) rows.push(`${date},${dayName},${slot.start_time}-${slot.end_time},${tName},,Dia sem aula`);
-          else if (blockedKeys.has(key)) rows.push(`${date},${dayName},${slot.start_time}-${slot.end_time},${tName},,Bloqueado`);
-          else rows.push(`${date},${dayName},${slot.start_time}-${slot.end_time},${tName},,Disponível`);
+          const tName = tMap.get(slot['teacherId'] as string) || '';
+          if (isNCD || isHol) rows.push(`${date},${dayName},${slot['startTime']}-${slot['endTime']},${tName},,Dia sem aula`);
+          else if (blockedKeys.has(key)) rows.push(`${date},${dayName},${slot['startTime']}-${slot['endTime']},${tName},,Bloqueado`);
+          else rows.push(`${date},${dayName},${slot['startTime']}-${slot['endTime']},${tName},,Disponível`);
         }
       }
 

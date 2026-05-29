@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { format } from 'date-fns';
 
+type Row = Record<string, unknown>;
+
 export async function GET() {
   try {
     const today = format(new Date(), 'yyyy-MM-dd');
@@ -23,10 +25,10 @@ export async function GET() {
       db.booking.findMany({ where: { date: { gte: today }, status: 'confirmed' }, orderBy: [{ date: 'asc' }, { start_time: 'asc' }], take: 5 }),
     ]);
 
-    // Enrich upcoming with teacher names
-    const teacherIds = [...new Set((upcoming as Record<string, unknown>[]).map(b => b.teacher_id as string))];
+    // After toCamel, all fields are camelCase
+    const teacherIds = [...new Set((upcoming as Row[]).map(b => b['teacherId'] as string))];
     const teachers = teacherIds.length ? await db.teacher.findMany({ where: { id: { in: teacherIds } } }) : [];
-    const tMap = new Map((teachers as Record<string, unknown>[]).map(t => [t.id, t.name]));
+    const tMap = new Map((teachers as Row[]).map(t => [t['id'], t['name']]));
 
     return NextResponse.json({
       totalTeachers,
@@ -34,14 +36,14 @@ export async function GET() {
       totalBookings,
       todayBookings,
       weekBookings,
-      upcomingBookings: (upcoming as Record<string, unknown>[]).map(b => ({
-        id: b.id,
-        date: b.date,
-        start_time: b.start_time,
-        end_time: b.end_time,
-        student_name: b.student_name,
-        teacherName: tMap.get(b.teacher_id as string) || '',
-        status: b.status,
+      upcomingBookings: (upcoming as Row[]).map(b => ({
+        id: b['id'],
+        date: b['date'],
+        startTime: b['startTime'],
+        endTime: b['endTime'],
+        studentName: b['studentName'],
+        teacherName: tMap.get(b['teacherId'] as string) || '',
+        status: b['status'],
       })),
     });
   } catch (error) {
