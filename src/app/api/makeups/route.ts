@@ -1,88 +1,107 @@
+/**
+ * /api/makeups — CRUD de reposições de aula
+ */
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getUserFromRequest } from '@/lib/auth';
 
+type Row = Record<string, unknown>;
+
 export async function GET(request: NextRequest) {
   try {
     const user = await getUserFromRequest(request);
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
 
-    const makeUpClasses = await db.makeUpClass.findMany({
-      include: {
-        originalAppointment: {
-          include: {
-            class: true,
-            teacher: { include: { user: true } },
-            student: { include: { user: true } },
-          },
-        },
-      },
-      orderBy: { newDate: 'asc' },
-    });
+    const makeups = await db.makeUpClass.findMany({ orderBy: { new_date: 'asc' } });
 
-    return NextResponse.json(makeUpClasses);
+    // Enrich with original appointment info
+    const originalIds = [...new Set((makeups as Row[]).map(m => m['originalAppointmentId'] as string).filter(Boolean))];
+    const appointments = originalIds.length
+      ? await db.appointment.findMany({ where: { id: { in: originalIds } } })
+      : [];
+    const aMap = new Map((appointments as Row[]).map(a => [a['id'], a]));
+
+    const enriched = (makeups as Row[]).map(m => ({
+      ...m,
+      originalAppointment: aMap.get(m['originalAppointmentId'] as string) || null,
+    }));
+
+    return NextResponse.json({ makeups: enriched });
   } catch (error) {
-    console.error('List make-up classes error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    console.error('[makeups GET]', error);
+    return NextResponse.json({ error: 'Erro ao buscar reposições' }, { status: 500 });
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
     const user = await getUserFromRequest(request);
-    if (!user || user.role !== 'coordinator') {
-      return NextResponse.json({ error: 'Only coordinators can create make-up classes' }, { status: 403 });
+    if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
+
+    if (user.role !== 'coordinator') {
+      return NextResponse.json({ error: 'Apenas coordenadores podem criar reposições' }, { status: 403 });
     }
 
-    const body = await request.json();
+    const body = await request.json() as {
+      originalAppointmentId: string;
+      newDate: string;
+      newStartTime: string;
+      newEndTime: string;
+    };
+
     const { originalAppointmentId, newDate, newStartTime, newEndTime } = body;
 
     if (!originalAppointmentId || !newDate || !newStartTime || !newEndTime) {
-      return NextResponse.json(
-        { error: 'originalAppointmentId, newDate, newStartTime, and newEndTime are required' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Preencha todos os campos obrigatórios' }, { status: 400 });
     }
 
-    const appointment = await db.appointment.findUnique({
-      where: { id: originalAppointmentId },
-    });
-
-    if (!appointment) {
-      return NextResponse.json({ error: 'Original appointment not found' }, { status: 404 });
+    // Verify original appointment exists
+    const original = await db.appointment.findUnique({ where: { id: originalAppointmentId } });
+    if (!original) {
+      return NextResponse.json({ error: 'Agendamento original não encontrado' }, { status: 404 });
     }
 
-    // Set original appointment status to cancelled
+    // Cancel the original appointment
     await db.appointment.update({
       where: { id: originalAppointmentId },
-      data: { status: 'cancelled' },
+      data: { status: 'cancelled_by_makeup' },
     });
 
-    // Create make-up class
-    const makeUpClass = await db.makeUpClass.create({
+    // Create the makeup class record
+    const makeup = await db.makeUpClass.create({
       data: {
-        originalAppointmentId,
-        newDate,
-        newStartTime,
-        newEndTime,
-        status: 'scheduled',
-      },
-      include: {
-        originalAppointment: {
-          include: {
-            class: true,
-            teacher: { include: { user: true } },
-            student: { include: { user: true } },
-          },
-        },
+        original_appointment_id: originalAppointmentId,
+        new_date: newDate,
+        new_start_time: newStartTime,
+        new_end_time: newEndTime,
       },
     });
 
-    return NextResponse.json(makeUpClass, { status: 201 });
+    // Create a new appointment for the makeup
+    const teacherId = (original as Row)['teacherId'] as string;
+    const studentId = (original as Row)['studentId'] as string | null;
+    const classId = (original as Row)['classId'] as string | null;
+    const dayOfWeek = new Date(newDate + 'T12:00:00').getDay();
+
+    const newAppointment = await db.appointment.create({
+      data: {
+        teacher_id: teacherId,
+        student_id: studentId,
+        class_id: classId,
+        date: newDate,
+        day_of_week: dayOfWeek,
+        start_time: newStartTime,
+        end_time: newEndTime,
+        status: 'confirmed',
+        booking_type: 'reposition',
+        original_booking_id: originalAppointmentId,
+        notes: 'Reposição de aula',
+      },
+    });
+
+    return NextResponse.json({ makeup, appointment: newAppointment }, { status: 201 });
   } catch (error) {
-    console.error('Create make-up class error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    console.error('[makeups POST]', error);
+    return NextResponse.json({ error: 'Erro ao criar reposição' }, { status: 500 });
   }
 }

@@ -1,6 +1,11 @@
+/**
+ * /api/classes/[id] — Update / Delete class
+ */
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getUserFromRequest } from '@/lib/auth';
+
+type Row = Record<string, unknown>;
 
 export async function PUT(
   request: NextRequest,
@@ -8,52 +13,26 @@ export async function PUT(
 ) {
   try {
     const user = await getUserFromRequest(request);
-    if (!user || user.role !== 'coordinator') {
-      return NextResponse.json({ error: 'Only coordinators can update classes' }, { status: 403 });
+    if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
+
+    if (user.role !== 'coordinator') {
+      return NextResponse.json({ error: 'Apenas coordenadores podem editar turmas' }, { status: 403 });
     }
 
     const { id } = await params;
-    const body = await request.json();
+    const body = await request.json() as Row;
     const { name, subject, teacherId } = body;
 
-    const existingClass = await db.class.findUnique({ where: { id } });
-    if (!existingClass) {
-      return NextResponse.json({ error: 'Class not found' }, { status: 404 });
-    }
+    const updates: Row = { updated_at: new Date().toISOString() };
+    if (name !== undefined)      updates['name'] = name;
+    if (subject !== undefined)   updates['subject'] = subject;
+    if (teacherId !== undefined) updates['teacher_id'] = teacherId;
 
-    if (teacherId) {
-      const teacher = await db.teacher.findUnique({ where: { id: teacherId } });
-      if (!teacher) {
-        return NextResponse.json({ error: 'Teacher not found' }, { status: 404 });
-      }
-    }
-
-    const updateData: { name?: string; subject?: string; teacherId?: string } = {};
-    if (name !== undefined) updateData.name = name;
-    if (subject !== undefined) updateData.subject = subject;
-    if (teacherId !== undefined) updateData.teacherId = teacherId;
-
-    const updatedClass = await db.class.update({
-      where: { id },
-      data: updateData,
-      include: {
-        teacher: {
-          include: { user: true },
-        },
-        classStudents: {
-          include: {
-            student: {
-              include: { user: true },
-            },
-          },
-        },
-      },
-    });
-
-    return NextResponse.json(updatedClass);
+    const cls = await db.class_.update({ where: { id }, data: updates });
+    return NextResponse.json({ class: cls });
   } catch (error) {
-    console.error('Update class error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    console.error('[classes/[id] PUT]', error);
+    return NextResponse.json({ error: 'Erro ao atualizar turma' }, { status: 500 });
   }
 }
 
@@ -63,22 +42,19 @@ export async function DELETE(
 ) {
   try {
     const user = await getUserFromRequest(request);
-    if (!user || user.role !== 'coordinator') {
-      return NextResponse.json({ error: 'Only coordinators can delete classes' }, { status: 403 });
+    if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
+
+    if (user.role !== 'coordinator') {
+      return NextResponse.json({ error: 'Apenas coordenadores podem excluir turmas' }, { status: 403 });
     }
 
     const { id } = await params;
-
-    const existingClass = await db.class.findUnique({ where: { id } });
-    if (!existingClass) {
-      return NextResponse.json({ error: 'Class not found' }, { status: 404 });
-    }
-
-    await db.class.delete({ where: { id } });
-
-    return NextResponse.json({ message: 'Class deleted successfully' });
+    // Delete class_students first
+    await db.classStudent.delete({ where: { class_id: id } }).catch(() => {});
+    await db.class_.delete({ where: { id } });
+    return NextResponse.json({ ok: true });
   } catch (error) {
-    console.error('Delete class error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    console.error('[classes/[id] DELETE]', error);
+    return NextResponse.json({ error: 'Erro ao excluir turma' }, { status: 500 });
   }
 }

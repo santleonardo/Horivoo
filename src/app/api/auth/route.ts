@@ -110,7 +110,6 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Auth error:', error);
     const msg = error instanceof Error ? error.message : 'Erro interno do servidor';
-    // Detect Supabase not configured
     if (msg.includes('Supabase não configurado') || msg.includes('fetch failed') || msg.includes('Invalid URL')) {
       return NextResponse.json(
         { error: 'Banco de dados não configurado. Verifique as variáveis de ambiente do Supabase no .env.local' },

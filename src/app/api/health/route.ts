@@ -16,7 +16,6 @@ export async function GET() {
   }
 
   try {
-    // Simple query to verify connection
     await db.user.count();
     return NextResponse.json({
       status: 'ok',

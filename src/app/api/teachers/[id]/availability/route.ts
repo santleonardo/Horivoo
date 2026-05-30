@@ -1,6 +1,11 @@
+/**
+ * /api/teachers/[id]/availability — Teacher availability (slots)
+ */
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getUserFromRequest } from '@/lib/auth';
+
+type Row = Record<string, unknown>;
 
 export async function GET(
   request: NextRequest,
@@ -8,25 +13,14 @@ export async function GET(
 ) {
   try {
     const user = await getUserFromRequest(request);
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
 
     const { id } = await params;
-
-    const teacher = await db.teacher.findUnique({
-      where: { id },
-      include: { availability: true },
-    });
-
-    if (!teacher) {
-      return NextResponse.json({ error: 'Teacher not found' }, { status: 404 });
-    }
-
-    return NextResponse.json(teacher.availability);
+    const slots = await db.availableSlot.findMany({ where: { teacher_id: id }, orderBy: { day_of_week: 'asc' } });
+    return NextResponse.json({ slots });
   } catch (error) {
-    console.error('Get availability error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    console.error('[teachers/[id]/availability GET]', error);
+    return NextResponse.json({ error: 'Erro ao buscar disponibilidade' }, { status: 500 });
   }
 }
 
@@ -36,51 +30,46 @@ export async function POST(
 ) {
   try {
     const user = await getUserFromRequest(request);
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
 
-    // Only coordinator or the teacher themselves can set availability
+    // Teachers can manage their own availability, coordinators can manage any
     const { id } = await params;
-    if (user.role !== 'coordinator' && (user.teacher?.id !== id)) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    if (user.role === 'teacher') {
+      const teacher = await db.teacher.findUnique({ where: { user_id: user.userId } });
+      if (!teacher || (teacher as Row)['id'] !== id) {
+        return NextResponse.json({ error: 'Não autorizado' }, { status: 403 });
+      }
     }
 
-    const body = await request.json();
-    const { slots } = body as { slots: { weekday: number; startTime: string; endTime: string }[] };
+    const body = await request.json() as {
+      dayOfWeek: number;
+      startTime: string;
+      endTime: string;
+    };
 
-    if (!Array.isArray(slots)) {
-      return NextResponse.json({ error: 'Slots array is required' }, { status: 400 });
+    const { dayOfWeek, startTime, endTime } = body;
+
+    if (dayOfWeek === undefined || !startTime || !endTime) {
+      return NextResponse.json({ error: 'Preencha todos os campos' }, { status: 400 });
     }
 
-    const teacher = await db.teacher.findUnique({ where: { id } });
-    if (!teacher) {
-      return NextResponse.json({ error: 'Teacher not found' }, { status: 404 });
-    }
-
-    // Delete all existing availability and create new ones
-    await db.teacherAvailability.deleteMany({ where: { teacherId: id } });
-
-    if (slots.length > 0) {
-      await db.teacherAvailability.createMany({
-        data: slots.map((slot) => ({
-          teacherId: id,
-          weekday: slot.weekday,
-          startTime: slot.startTime,
-          endTime: slot.endTime,
-        })),
-      });
-    }
-
-    const updatedTeacher = await db.teacher.findUnique({
-      where: { id },
-      include: { availability: true },
+    // Check for duplicate
+    const existing = await db.availableSlot.findFirst({
+      where: { teacher_id: id, day_of_week: dayOfWeek, start_time: startTime, end_time: endTime },
     });
 
-    return NextResponse.json(updatedTeacher?.availability || []);
+    if (existing) {
+      return NextResponse.json({ error: 'Slot já existe' }, { status: 400 });
+    }
+
+    const slot = await db.availableSlot.create({
+      data: { teacher_id: id, day_of_week: dayOfWeek, start_time: startTime, end_time: endTime },
+    });
+
+    return NextResponse.json({ slot }, { status: 201 });
   } catch (error) {
-    console.error('Set availability error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    console.error('[teachers/[id]/availability POST]', error);
+    return NextResponse.json({ error: 'Erro ao criar slot' }, { status: 500 });
   }
 }
 
@@ -90,25 +79,20 @@ export async function DELETE(
 ) {
   try {
     const user = await getUserFromRequest(request);
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
 
     const { id } = await params;
-    if (user.role !== 'coordinator' && user.teacher?.id !== id) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    const { searchParams } = new URL(request.url);
+    const slotId = searchParams.get('slotId');
+
+    if (!slotId) {
+      return NextResponse.json({ error: 'slotId é obrigatório' }, { status: 400 });
     }
 
-    const teacher = await db.teacher.findUnique({ where: { id } });
-    if (!teacher) {
-      return NextResponse.json({ error: 'Teacher not found' }, { status: 404 });
-    }
-
-    await db.teacherAvailability.deleteMany({ where: { teacherId: id } });
-
-    return NextResponse.json({ message: 'Availability cleared successfully' });
+    await db.availableSlot.delete({ where: { id: slotId } });
+    return NextResponse.json({ ok: true });
   } catch (error) {
-    console.error('Clear availability error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    console.error('[teachers/[id]/availability DELETE]', error);
+    return NextResponse.json({ error: 'Erro ao remover slot' }, { status: 500 });
   }
 }

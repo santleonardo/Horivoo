@@ -1,3 +1,6 @@
+/**
+ * /api/messages/[id]/read — Mark message as read
+ */
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getUserFromRequest } from '@/lib/auth';
@@ -8,38 +11,25 @@ export async function PATCH(
 ) {
   try {
     const user = await getUserFromRequest(request);
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
 
     const { id } = await params;
 
+    // Verify the user is the receiver
     const message = await db.message.findUnique({ where: { id } });
     if (!message) {
-      return NextResponse.json({ error: 'Message not found' }, { status: 404 });
+      return NextResponse.json({ error: 'Mensagem não encontrada' }, { status: 404 });
     }
 
-    // Only the receiver can mark a message as read
-    if (message.receiverId !== user.userId) {
-      return NextResponse.json({ error: 'You can only mark your own messages as read' }, { status: 403 });
+    // Only the receiver can mark as read
+    if ((message as Record<string, unknown>)['receiverId'] !== user.userId) {
+      return NextResponse.json({ error: 'Não autorizado' }, { status: 403 });
     }
 
-    const updatedMessage = await db.message.update({
-      where: { id },
-      data: { read: true },
-      include: {
-        sender: {
-          select: { id: true, name: true, email: true, role: true },
-        },
-        receiver: {
-          select: { id: true, name: true, email: true, role: true },
-        },
-      },
-    });
-
-    return NextResponse.json(updatedMessage);
+    await db.message.update({ where: { id }, data: { read: true } });
+    return NextResponse.json({ ok: true });
   } catch (error) {
-    console.error('Mark message read error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    console.error('[messages/[id]/read PATCH]', error);
+    return NextResponse.json({ error: 'Erro ao marcar mensagem como lida' }, { status: 500 });
   }
 }

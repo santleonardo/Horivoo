@@ -1,85 +1,66 @@
+/**
+ * /api/classes — CRUD de turmas
+ */
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getUserFromRequest } from '@/lib/auth';
 
+type Row = Record<string, unknown>;
+
 export async function GET(request: NextRequest) {
   try {
     const user = await getUserFromRequest(request);
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
 
-    const classes = await db.class.findMany({
-      include: {
-        teacher: {
-          include: { user: true },
-        },
-        classStudents: {
-          include: {
-            student: {
-              include: { user: true },
-            },
-          },
-        },
-        appointments: true,
-      },
-      orderBy: { name: 'asc' },
-    });
+    const classes = await db.class_.findMany({ orderBy: { name: 'asc' } });
 
-    const result = classes.map((cls) => ({
-      ...cls,
-      appointmentsCount: cls.appointments.length,
+    // Enrich with teacher info
+    const teacherIds = [...new Set((classes as Row[]).map(c => c['teacherId'] as string).filter(Boolean))];
+    const teachers = teacherIds.length
+      ? await db.teacher.findMany({ where: { id: { in: teacherIds } } })
+      : [];
+    const tMap = new Map((teachers as Row[]).map(t => [t['id'], t['name']]));
+
+    const enriched = (classes as Row[]).map(c => ({
+      ...c,
+      teacherName: tMap.get(c['teacherId'] as string) || '',
     }));
 
-    return NextResponse.json(result);
+    return NextResponse.json({ classes: enriched });
   } catch (error) {
-    console.error('List classes error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    console.error('[classes GET]', error);
+    return NextResponse.json({ error: 'Erro ao buscar turmas' }, { status: 500 });
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
     const user = await getUserFromRequest(request);
-    if (!user || user.role !== 'coordinator') {
-      return NextResponse.json({ error: 'Only coordinators can create classes' }, { status: 403 });
+    if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
+
+    if (user.role !== 'coordinator') {
+      return NextResponse.json({ error: 'Apenas coordenadores podem criar turmas' }, { status: 403 });
     }
 
-    const body = await request.json();
+    const body = await request.json() as {
+      name: string;
+      subject: string;
+      teacherId: string;
+    };
+
     const { name, subject, teacherId } = body;
 
     if (!name || !subject || !teacherId) {
-      return NextResponse.json({ error: 'Name, subject, and teacherId are required' }, { status: 400 });
+      return NextResponse.json({ error: 'Preencha todos os campos obrigatórios' }, { status: 400 });
     }
 
-    const teacher = await db.teacher.findUnique({ where: { id: teacherId } });
-    if (!teacher) {
-      return NextResponse.json({ error: 'Teacher not found' }, { status: 404 });
-    }
-
-    const newClass = await db.class.create({
-      data: {
-        name,
-        subject,
-        teacherId,
-      },
-      include: {
-        teacher: {
-          include: { user: true },
-        },
-        classStudents: {
-          include: {
-            student: {
-              include: { user: true },
-            },
-          },
-        },
-      },
+    const cls = await db.class_.create({
+      data: { name, subject, teacher_id: teacherId },
     });
 
-    return NextResponse.json(newClass, { status: 201 });
+    return NextResponse.json({ class: cls }, { status: 201 });
   } catch (error) {
-    console.error('Create class error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    console.error('[classes POST]', error);
+    return NextResponse.json({ error: 'Erro ao criar turma' }, { status: 500 });
   }
 }

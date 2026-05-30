@@ -1,6 +1,11 @@
+/**
+ * /api/makeups/[id] — Update makeup class
+ */
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getUserFromRequest } from '@/lib/auth';
+
+type Row = Record<string, unknown>;
 
 export async function PUT(
   request: NextRequest,
@@ -8,43 +13,26 @@ export async function PUT(
 ) {
   try {
     const user = await getUserFromRequest(request);
-    if (!user || user.role !== 'coordinator') {
-      return NextResponse.json({ error: 'Only coordinators can update make-up classes' }, { status: 403 });
+    if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
+
+    if (user.role !== 'coordinator') {
+      return NextResponse.json({ error: 'Apenas coordenadores podem editar reposições' }, { status: 403 });
     }
 
     const { id } = await params;
-    const body = await request.json();
-    const { status, newDate, newStartTime, newEndTime } = body;
+    const body = await request.json() as Row;
+    const { newDate, newStartTime, newEndTime } = body;
 
-    const makeUpClass = await db.makeUpClass.findUnique({ where: { id } });
-    if (!makeUpClass) {
-      return NextResponse.json({ error: 'Make-up class not found' }, { status: 404 });
-    }
+    const updates: Row = {};
+    if (newDate !== undefined)      updates['new_date'] = newDate;
+    if (newStartTime !== undefined) updates['new_start_time'] = newStartTime;
+    if (newEndTime !== undefined)   updates['new_end_time'] = newEndTime;
 
-    const updateData: Record<string, unknown> = {};
-    if (status !== undefined) updateData.status = status;
-    if (newDate !== undefined) updateData.newDate = newDate;
-    if (newStartTime !== undefined) updateData.newStartTime = newStartTime;
-    if (newEndTime !== undefined) updateData.newEndTime = newEndTime;
-
-    const updatedMakeUp = await db.makeUpClass.update({
-      where: { id },
-      data: updateData,
-      include: {
-        originalAppointment: {
-          include: {
-            class: true,
-            teacher: { include: { user: true } },
-            student: { include: { user: true } },
-          },
-        },
-      },
-    });
-
-    return NextResponse.json(updatedMakeUp);
+    const makeup = await db.makeUpClass.update({ where: { id }, data: updates });
+    return NextResponse.json({ makeup });
   } catch (error) {
-    console.error('Update make-up class error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    console.error('[makeups/[id] PUT]', error);
+    return NextResponse.json({ error: 'Erro ao atualizar reposição' }, { status: 500 });
   }
 }
 
@@ -54,22 +42,17 @@ export async function DELETE(
 ) {
   try {
     const user = await getUserFromRequest(request);
-    if (!user || user.role !== 'coordinator') {
-      return NextResponse.json({ error: 'Only coordinators can delete make-up classes' }, { status: 403 });
+    if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
+
+    if (user.role !== 'coordinator') {
+      return NextResponse.json({ error: 'Apenas coordenadores podem excluir reposições' }, { status: 403 });
     }
 
     const { id } = await params;
-
-    const makeUpClass = await db.makeUpClass.findUnique({ where: { id } });
-    if (!makeUpClass) {
-      return NextResponse.json({ error: 'Make-up class not found' }, { status: 404 });
-    }
-
     await db.makeUpClass.delete({ where: { id } });
-
-    return NextResponse.json({ message: 'Make-up class deleted successfully' });
+    return NextResponse.json({ ok: true });
   } catch (error) {
-    console.error('Delete make-up class error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    console.error('[makeups/[id] DELETE]', error);
+    return NextResponse.json({ error: 'Erro ao excluir reposição' }, { status: 500 });
   }
 }
