@@ -1,10 +1,14 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { requireRole } from '@/lib/auth';
 import { format } from 'date-fns';
 
 type Row = Record<string, unknown>;
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const authResult = await requireRole(request, 'coordinator', 'teacher', 'student');
+  if (authResult instanceof NextResponse) return authResult;
+
   try {
     const today = format(new Date(), 'yyyy-MM-dd');
 
@@ -19,7 +23,6 @@ export async function GET() {
       db.teacher.findMany({ orderBy: { name: 'asc' } }),
     ]);
 
-    // After toCamel, fields are camelCase
     const tMap = new Map((teachers as Row[]).map(t => [t['id'], t]));
     const enrichedBookings = (bookings as Row[]).map(b => ({
       ...b,
