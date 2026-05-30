@@ -1,6 +1,9 @@
 /**
  * db.ts — Cliente Supabase (PostgREST)
- * Adicionado: db.message para sistema de mensagens
+ * Tabelas: users, teachers, coordinators, students, available_slots,
+ *          blocked_slots, bookings, recurring_bookings, non_class_days,
+ *          holidays, recesses, blocked_periods, messages,
+ *          classes, class_students, appointments, tests, attendance, make_up_classes
  */
 
 const SUPABASE_URL = (process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace(/\/$/, '');
@@ -10,13 +13,13 @@ const isConfigured = !!(SUPABASE_URL && SUPABASE_KEY);
 
 if (!isConfigured) {
   console.error(
-    '[db] ❌ Variáveis de ambiente do Supabase NÃO configuradas!\n' +
+    '[db] Variáveis de ambiente do Supabase NÃO configuradas!\n' +
     '    NEXT_PUBLIC_SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY são obrigatórias.\n' +
     '    Copie .env.example para .env.local e preencha com suas credenciais.'
   );
 }
 
-/** Verifica se o Supabase está configurado. Útil para exibir mensagens no frontend. */
+/** Verifica se o Supabase está configurado */
 export function isSupabaseConfigured(): boolean {
   return isConfigured;
 }
@@ -215,6 +218,17 @@ export const db = {
   holiday:          makeTable('holidays'),
   recess:           makeTable('recesses'),
   blockedPeriod:    makeTable('blocked_periods'),
-  /** Tabela de mensagens internas — adicionada na v0.3 */
   message:          makeTable('messages'),
+  /** Turmas (classes) */
+  class_:           makeTable('classes'),
+  /** Relação turma ↔ aluno */
+  classStudent:     makeTable('class_students'),
+  /** Agendamentos / Appointments */
+  appointment:      makeTable('appointments'),
+  /** Provas */
+  test:             makeTable('tests'),
+  /** Presença / Frequência */
+  attendance:       makeTable('attendance'),
+  /** Reposições de aula */
+  makeUpClass:      makeTable('make_up_classes'),
 };

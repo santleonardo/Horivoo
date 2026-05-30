@@ -4,6 +4,7 @@
  */
 import { SignJWT, jwtVerify } from 'jose';
 import { createHash } from 'crypto';
+import { NextRequest } from 'next/server';
 
 const getSecret = () =>
   new TextEncoder().encode(
@@ -42,4 +43,18 @@ export async function verifyToken(
   } catch {
     return null;
   }
+}
+
+/**
+ * Extrai o usuário autenticado de uma NextRequest.
+ * Verifica o header Authorization: Bearer <token>
+ * Retorna o payload decodificado ou null se inválido/ausente.
+ */
+export async function getUserFromRequest(
+  request: NextRequest
+): Promise<{ userId: string; email: string; role: string } | null> {
+  const authHeader = request.headers.get('Authorization');
+  if (!authHeader?.startsWith('Bearer ')) return null;
+  const token = authHeader.substring(7);
+  return verifyToken(token);
 }
