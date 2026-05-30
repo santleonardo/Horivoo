@@ -89,6 +89,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Senha incorreta' }, { status: 401 });
     }
 
+    // Migração silenciosa: se a senha ainda usa SHA-256 legado, re-hash com PBKDF2
+    if (!user.password.startsWith('pbkdf2:')) {
+      await db.user.update({
+        where: { id: user.id },
+        data: { password: hashPassword(password), updated_at: new Date().toISOString() },
+      });
+    }
+
     const teacher = (await db.teacher.findUnique({ where: { user_id: user.id } })) as unknown as AuthTeacher | null;
 
     const token = await createToken({
