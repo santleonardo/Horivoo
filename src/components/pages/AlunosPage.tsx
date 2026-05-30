@@ -40,6 +40,8 @@ interface Student {
   phone: string;
   userId: string;
   createdAt: string;
+  responsibleName?: string;
+  notes?: string;
 }
 
 interface Booking {
@@ -63,7 +65,13 @@ export function AlunosPage() {
   const [viewingStudent, setViewingStudent] = useState<Student | null>(null);
   const [studentBookings, setStudentBookings] = useState<Booking[]>([]);
 
-  const [form, setForm] = useState({ name: '', email: '', phone: '' });
+  const [form, setForm] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    responsibleName: '',
+    notes: '',
+  });
 
   const loadStudents = useCallback(async () => {
     try {
@@ -77,9 +85,7 @@ export function AlunosPage() {
     }
   }, []);
 
-  useEffect(() => {
-    loadStudents();
-  }, [loadStudents]);
+  useEffect(() => { loadStudents(); }, [loadStudents]);
 
   const filtered = students.filter(
     (s) =>
@@ -90,13 +96,19 @@ export function AlunosPage() {
 
   const openCreate = () => {
     setEditingStudent(null);
-    setForm({ name: '', email: '', phone: '' });
+    setForm({ name: '', email: '', phone: '', responsibleName: '', notes: '' });
     setDialogOpen(true);
   };
 
   const openEdit = (student: Student) => {
     setEditingStudent(student);
-    setForm({ name: student.name, email: student.email, phone: student.phone });
+    setForm({
+      name: student.name,
+      email: student.email,
+      phone: student.phone,
+      responsibleName: student.responsibleName || '',
+      notes: student.notes || '',
+    });
     setDialogOpen(true);
   };
 
@@ -113,8 +125,16 @@ export function AlunosPage() {
   };
 
   const handleSave = async () => {
-    if (!form.name || !form.email) {
-      toast.error('Nome e email são obrigatórios');
+    if (!form.name) {
+      toast.error('Nome é obrigatório');
+      return;
+    }
+    if (!form.phone) {
+      toast.error('Telefone é obrigatório');
+      return;
+    }
+    if (!form.responsibleName) {
+      toast.error('Nome do responsável é obrigatório');
       return;
     }
 
@@ -199,9 +219,7 @@ export function AlunosPage() {
         <div className="space-y-3">
           {[...Array(3)].map((_, i) => (
             <Card key={i} className="animate-pulse">
-              <CardContent className="p-4">
-                <div className="h-12 bg-muted rounded" />
-              </CardContent>
+              <CardContent className="p-4"><div className="h-12 bg-muted rounded" /></CardContent>
             </Card>
           ))}
         </div>
@@ -221,6 +239,7 @@ export function AlunosPage() {
                   <TableHead>Nome</TableHead>
                   <TableHead>Email</TableHead>
                   <TableHead>Telefone</TableHead>
+                  <TableHead>Responsável</TableHead>
                   <TableHead>Cadastrado em</TableHead>
                   <TableHead className="w-[80px]">Ações</TableHead>
                 </TableRow>
@@ -229,8 +248,9 @@ export function AlunosPage() {
                 {filtered.map((student) => (
                   <TableRow key={student.id}>
                     <TableCell className="font-medium">{student.name}</TableCell>
-                    <TableCell className="text-muted-foreground">{student.email}</TableCell>
+                    <TableCell className="text-muted-foreground">{student.email || '-'}</TableCell>
                     <TableCell className="text-muted-foreground">{student.phone || '-'}</TableCell>
+                    <TableCell className="text-muted-foreground">{student.responsibleName || '-'}</TableCell>
                     <TableCell className="text-muted-foreground text-sm">
                       {student.createdAt
                         ? format(parseISO(student.createdAt), 'dd/MM/yyyy', { locale: ptBR })
@@ -281,7 +301,7 @@ export function AlunosPage() {
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label>Nome</Label>
+              <Label>Nome *</Label>
               <Input
                 placeholder="Nome do aluno"
                 value={form.name}
@@ -289,7 +309,23 @@ export function AlunosPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label>Email</Label>
+              <Label>Telefone *</Label>
+              <Input
+                placeholder="(00) 00000-0000"
+                value={form.phone}
+                onChange={(e) => setForm({ ...form, phone: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Nome do Responsável *</Label>
+              <Input
+                placeholder="Nome do responsável pelo aluno"
+                value={form.responsibleName}
+                onChange={(e) => setForm({ ...form, responsibleName: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Email (opcional)</Label>
               <Input
                 type="email"
                 placeholder="email@exemplo.com"
@@ -298,18 +334,16 @@ export function AlunosPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label>Telefone</Label>
+              <Label>Observações (opcional)</Label>
               <Input
-                placeholder="(00) 00000-0000"
-                value={form.phone}
-                onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                placeholder="Observações sobre o aluno"
+                value={form.notes}
+                onChange={(e) => setForm({ ...form, notes: e.target.value })}
               />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>
-              Cancelar
-            </Button>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancelar</Button>
             <Button onClick={handleSave} className="bg-emerald-600 hover:bg-emerald-700">
               {editingStudent ? 'Salvar' : 'Criar'}
             </Button>
@@ -322,22 +356,28 @@ export function AlunosPage() {
         <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Agendamentos do Aluno</DialogTitle>
-            <DialogDescription>
-              {viewingStudent?.name}
-            </DialogDescription>
+            <DialogDescription>{viewingStudent?.name}</DialogDescription>
           </DialogHeader>
 
           {viewingStudent && (
             <div className="space-y-4">
               <div className="flex flex-wrap gap-4 p-4 bg-muted/50 rounded-lg">
-                <div className="flex items-center gap-2">
-                  <Mail className="size-4 text-muted-foreground" />
-                  <span className="text-sm">{viewingStudent.email}</span>
-                </div>
+                {viewingStudent.email && (
+                  <div className="flex items-center gap-2">
+                    <Mail className="size-4 text-muted-foreground" />
+                    <span className="text-sm">{viewingStudent.email}</span>
+                  </div>
+                )}
                 {viewingStudent.phone && (
                   <div className="flex items-center gap-2">
                     <Phone className="size-4 text-muted-foreground" />
                     <span className="text-sm">{viewingStudent.phone}</span>
+                  </div>
+                )}
+                {viewingStudent.responsibleName && (
+                  <div className="flex items-center gap-2">
+                    <Users className="size-4 text-muted-foreground" />
+                    <span className="text-sm">Responsável: {viewingStudent.responsibleName}</span>
                   </div>
                 )}
               </div>
@@ -352,10 +392,7 @@ export function AlunosPage() {
                   ) : (
                     <div className="space-y-2">
                       {studentBookings.map((booking) => (
-                        <div
-                          key={booking.id}
-                          className="flex items-center gap-3 p-3 rounded-lg bg-muted/50"
-                        >
+                        <div key={booking.id} className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-medium">
                               {booking.teacher?.name || 'Professor'}

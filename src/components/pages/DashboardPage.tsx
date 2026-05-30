@@ -16,9 +16,40 @@ import {
   Clock,
   User,
   ArrowRight,
+  BookOpen,
+  FileText,
+  Layers,
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+
+interface UpcomingBooking {
+  id: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  studentName: string;
+  teacherName: string;
+  status: string;
+}
+
+interface TeacherStat {
+  id: string;
+  name: string;
+  subjects: string;
+  classesCount: number;
+  studentsCount: number;
+  upcomingBookingsCount: number;
+}
+
+interface StudentStat {
+  id: string;
+  name: string;
+  className: string;
+  subjects: string;
+  absencesCount: number;
+  upcomingTests: { id: string; title: string; date: string }[];
+}
 
 interface DashboardData {
   totalTeachers: number;
@@ -26,15 +57,9 @@ interface DashboardData {
   totalBookings: number;
   todayBookings: number;
   weekBookings: number;
-  upcomingBookings: {
-    id: string;
-    date: string;
-    startTime: string;
-    endTime: string;
-    studentName: string;
-    teacherName: string;
-    status: string;
-  }[];
+  upcomingBookings: UpcomingBooking[];
+  teacherStats?: TeacherStat[];
+  studentStats?: StudentStat[];
 }
 
 export function DashboardPage() {
@@ -263,21 +288,141 @@ export function DashboardPage() {
 
               <Button
                 variant="outline"
-                className="h-auto p-4 justify-start gap-3 hover:bg-rose-50 hover:border-rose-200"
-                onClick={() => setActivePage('exportar')}
+                className="h-auto p-4 justify-start gap-3 hover:bg-purple-50 hover:border-purple-200"
+                onClick={() => setActivePage('turmas')}
               >
-                <div className="p-2 rounded-lg bg-rose-100">
-                  <GraduationCap className="size-5 text-rose-600" />
+                <div className="p-2 rounded-lg bg-purple-100">
+                  <Layers className="size-5 text-purple-600" />
                 </div>
                 <div className="text-left">
-                  <p className="font-medium text-sm">Exportar Dados</p>
-                  <p className="text-xs text-muted-foreground">CSV ou PDF</p>
+                  <p className="font-medium text-sm">Gerenciar Turmas</p>
+                  <p className="text-xs text-muted-foreground">Classes e alunos</p>
                 </div>
               </Button>
             </div>
           </CardContent>
         </Card>
       </div>
+
+      {/* Lista de Professores */}
+      {data?.teacherStats && data.teacherStats.length > 0 && (
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold flex items-center gap-2">
+              <GraduationCap className="size-5 text-emerald-600" />
+              Lista de Professores
+            </h2>
+            <Button variant="ghost" size="sm" onClick={() => setActivePage('professores')} className="text-emerald-600">
+              Ver todos <ArrowRight className="size-4 ml-1" />
+            </Button>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {data.teacherStats.map(teacher => (
+              <Card key={teacher.id} className="hover:shadow-md transition-shadow">
+                <CardContent className="p-4">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+                      <GraduationCap className="size-5" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-sm truncate">{teacher.name}</p>
+                      {teacher.subjects && (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {teacher.subjects.split(',').filter(Boolean).slice(0, 3).map((s, i) => (
+                            <Badge key={i} variant="outline" className="text-[10px] px-1 py-0">
+                              {s.trim()}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
+                      <div className="flex flex-wrap gap-3 mt-2 text-xs text-muted-foreground">
+                        <span className="flex items-center gap-1">
+                          <Layers className="size-3" />
+                          {teacher.classesCount} turma{teacher.classesCount !== 1 ? 's' : ''}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Users className="size-3" />
+                          {teacher.studentsCount} aluno{teacher.studentsCount !== 1 ? 's' : ''}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <CalendarDays className="size-3" />
+                          {teacher.upcomingBookingsCount} aula{teacher.upcomingBookingsCount !== 1 ? 's' : ''}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Lista de Alunos */}
+      {data?.studentStats && data.studentStats.length > 0 && (
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold flex items-center gap-2">
+              <Users className="size-5 text-teal-600" />
+              Lista de Alunos
+            </h2>
+            <Button variant="ghost" size="sm" onClick={() => setActivePage('alunos')} className="text-emerald-600">
+              Ver todos <ArrowRight className="size-4 ml-1" />
+            </Button>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {data.studentStats.map(student => (
+              <Card key={student.id} className="hover:shadow-md transition-shadow">
+                <CardContent className="p-4">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-teal-100 text-teal-700">
+                      <User className="size-5" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-sm truncate">{student.name}</p>
+                      {student.className && (
+                        <Badge variant="outline" className="text-[10px] px-1 py-0 mt-0.5">
+                          {student.className}
+                        </Badge>
+                      )}
+                      {student.subjects && (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {student.subjects.split(',').filter(Boolean).slice(0, 3).map((s, i) => (
+                            <Badge key={i} variant="secondary" className="text-[10px] px-1 py-0">
+                              {s.trim()}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
+                      <div className="flex flex-wrap gap-3 mt-2 text-xs text-muted-foreground">
+                        <span className="flex items-center gap-1 text-red-600">
+                          {student.absencesCount} falta{student.absencesCount !== 1 ? 's' : ''}
+                        </span>
+                        {student.upcomingTests.length > 0 && (
+                          <span className="flex items-center gap-1 text-purple-600">
+                            <FileText className="size-3" />
+                            {student.upcomingTests.length} prova{student.upcomingTests.length !== 1 ? 's' : ''}
+                          </span>
+                        )}
+                      </div>
+                      {student.upcomingTests.length > 0 && (
+                        <div className="mt-2 space-y-1">
+                          {student.upcomingTests.slice(0, 2).map(t => (
+                            <div key={t.id} className="text-xs text-muted-foreground flex items-center gap-1">
+                              <FileText className="size-3 text-purple-400" />
+                              {t.title} — {format(parseISO(t.date), "dd/MM", { locale: ptBR })}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

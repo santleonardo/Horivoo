@@ -1,9 +1,10 @@
 'use client';
 
 /**
- * MessagesPage.tsx
- * Sistema de mensagens internas para todos os papéis.
- * Coordenador ↔ Professores ↔ Alunos
+ * MessagesPage.tsx — Sistema de mensagens internas com filtro por papel.
+ * Aluno: pode enviar para professores e coordenadores
+ * Professor: pode enviar para alunos e coordenadores
+ * Coordenador: pode enviar para todos
  */
 
 import { useEffect, useState, useCallback } from 'react';
@@ -44,8 +45,6 @@ import { ptBR } from 'date-fns/locale';
 import { toast } from 'sonner';
 
 /* ------------------------------------------------------------------ */
-/* Types                                                                */
-/* ------------------------------------------------------------------ */
 
 interface Message {
   id: string;
@@ -72,8 +71,13 @@ const roleLabel: Record<string, string> = {
   student:     'Aluno',
 };
 
-/* ------------------------------------------------------------------ */
-/* Component                                                           */
+/* ---- Role-based recipient filtering ---- */
+const allowedRecipientRoles: Record<string, string[]> = {
+  student:     ['teacher', 'coordinator'],
+  teacher:     ['student', 'coordinator'],
+  coordinator: ['teacher', 'student', 'coordinator'],
+};
+
 /* ------------------------------------------------------------------ */
 
 export function MessagesPage() {
@@ -110,6 +114,14 @@ export function MessagesPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  /* ---- Filter contacts based on role ---- */
+  const filteredContacts = contacts.filter(c => {
+    if (!user?.role) return false;
+    if (c.id === user.id) return false; // Can't message yourself
+    const allowed = allowedRecipientRoles[user.role] || [];
+    return allowed.includes(c.role);
+  });
+
   /* ---- Load contacts for compose ---- */
   const openCompose = async () => {
     try {
@@ -133,9 +145,7 @@ export function MessagesPage() {
         method: 'PATCH',
         body: JSON.stringify({ messageId: msg.id }),
       });
-      setMessages(prev =>
-        prev.map(m => m.id === msg.id ? { ...m, read: true } : m)
-      );
+      setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, read: true } : m));
       setUnread(prev => Math.max(0, prev - 1));
     }
   };
@@ -211,23 +221,17 @@ export function MessagesPage() {
             <button
               onClick={() => { setBox('inbox'); setSelected(null); }}
               className={`flex-1 flex items-center justify-center gap-1.5 text-sm font-medium py-1.5 rounded-md transition-colors ${
-                box === 'inbox'
-                  ? 'bg-white shadow-sm text-emerald-700'
-                  : 'text-muted-foreground hover:text-foreground'
+                box === 'inbox' ? 'bg-white shadow-sm text-emerald-700' : 'text-muted-foreground hover:text-foreground'
               }`}
             >
               <Inbox className="size-4" />
               Recebidas
-              {unread > 0 && (
-                <Badge className="h-5 px-1.5 text-xs bg-emerald-600">{unread}</Badge>
-              )}
+              {unread > 0 && <Badge className="h-5 px-1.5 text-xs bg-emerald-600">{unread}</Badge>}
             </button>
             <button
               onClick={() => { setBox('sent'); setSelected(null); }}
               className={`flex-1 flex items-center justify-center gap-1.5 text-sm font-medium py-1.5 rounded-md transition-colors ${
-                box === 'sent'
-                  ? 'bg-white shadow-sm text-emerald-700'
-                  : 'text-muted-foreground hover:text-foreground'
+                box === 'sent' ? 'bg-white shadow-sm text-emerald-700' : 'text-muted-foreground hover:text-foreground'
               }`}
             >
               <Send className="size-4" />
@@ -263,9 +267,7 @@ export function MessagesPage() {
                         }`}
                       >
                         <div className="flex items-start gap-2">
-                          {isUnread && (
-                            <Circle className="size-2 mt-1.5 fill-emerald-500 text-emerald-500 shrink-0" />
-                          )}
+                          {isUnread && <Circle className="size-2 mt-1.5 fill-emerald-500 text-emerald-500 shrink-0" />}
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center justify-between gap-2">
                               <span className={`text-sm truncate ${isUnread ? 'font-semibold' : 'font-medium'}`}>
@@ -278,9 +280,7 @@ export function MessagesPage() {
                             <p className={`text-xs truncate ${isUnread ? 'text-foreground' : 'text-muted-foreground'}`}>
                               {msg.subject || '(sem assunto)'}
                             </p>
-                            <p className="text-xs text-muted-foreground truncate mt-0.5">
-                              {msg.body}
-                            </p>
+                            <p className="text-xs text-muted-foreground truncate mt-0.5">{msg.body}</p>
                           </div>
                         </div>
                       </button>
@@ -320,20 +320,14 @@ export function MessagesPage() {
                         </span>
                       </div>
                     </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => reply(selected)}
-                    >
+                    <Button variant="outline" size="sm" onClick={() => reply(selected)}>
                       <Send className="size-3.5 mr-1" />
                       Responder
                     </Button>
                   </div>
                 </CardHeader>
                 <CardContent className="flex-1 overflow-y-auto pt-4">
-                  <p className="text-sm whitespace-pre-wrap leading-relaxed">
-                    {selected.body}
-                  </p>
+                  <p className="text-sm whitespace-pre-wrap leading-relaxed">{selected.body}</p>
                 </CardContent>
               </div>
             ) : (
@@ -364,53 +358,45 @@ export function MessagesPage() {
                   <SelectValue placeholder="Selecione o destinatário..." />
                 </SelectTrigger>
                 <SelectContent>
-                  {contacts.map(c => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.name}
-                      <span className="ml-2 text-xs text-muted-foreground">
-                        ({roleLabel[c.role] || c.role})
-                      </span>
-                    </SelectItem>
-                  ))}
+                  {filteredContacts.length === 0 ? (
+                    <div className="p-2 text-sm text-muted-foreground text-center">
+                      Nenhum contato disponível
+                    </div>
+                  ) : (
+                    filteredContacts.map(c => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.name}
+                        <span className="ml-2 text-xs text-muted-foreground">
+                          ({roleLabel[c.role] || c.role})
+                        </span>
+                      </SelectItem>
+                    ))
+                  )}
                 </SelectContent>
               </Select>
+              <p className="text-xs text-muted-foreground">
+                {user?.role === 'student' && 'Você pode enviar mensagens para professores e coordenadores'}
+                {user?.role === 'teacher' && 'Você pode enviar mensagens para alunos e coordenadores'}
+                {user?.role === 'coordinator' && 'Você pode enviar mensagens para todos'}
+              </p>
             </div>
 
             <div className="space-y-1.5">
               <Label>Assunto</Label>
-              <Input
-                placeholder="Assunto (opcional)"
-                value={subject}
-                onChange={e => setSubject(e.target.value)}
-              />
+              <Input placeholder="Assunto (opcional)" value={subject} onChange={e => setSubject(e.target.value)} />
             </div>
 
             <div className="space-y-1.5">
               <Label>Mensagem</Label>
-              <Textarea
-                placeholder="Escreva sua mensagem aqui..."
-                value={body}
-                onChange={e => setBody(e.target.value)}
-                rows={6}
-                className="resize-none"
-              />
+              <Textarea placeholder="Escreva sua mensagem aqui..." value={body} onChange={e => setBody(e.target.value)} rows={6} className="resize-none" />
             </div>
           </div>
           <Separator />
           <DialogFooter>
-            <Button variant="outline" onClick={() => setComposeOpen(false)}>
-              Cancelar
-            </Button>
-            <Button
-              onClick={send}
-              disabled={sending || !toId || !body.trim()}
-              className="bg-emerald-600 hover:bg-emerald-700"
-            >
+            <Button variant="outline" onClick={() => setComposeOpen(false)}>Cancelar</Button>
+            <Button onClick={send} disabled={sending || !toId || !body.trim()} className="bg-emerald-600 hover:bg-emerald-700">
               {sending ? 'Enviando...' : (
-                <>
-                  <Send className="size-4 mr-1" />
-                  Enviar
-                </>
+                <><Send className="size-4 mr-1" /> Enviar</>
               )}
             </Button>
           </DialogFooter>

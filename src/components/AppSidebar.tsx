@@ -3,9 +3,9 @@
 /**
  * AppSidebar.tsx — Sidebar com navegação por papel (role-based).
  *
- * Coordenador: acesso completo
- * Professor:   Minha Agenda | Disponibilidade | Calendário | Mensagens | Perfil
- * Aluno:       Calendário | Minhas Aulas | Mensagens | Perfil
+ * Coordenador: Dashboard, Agenda, Professores, Alunos, Turmas, Provas, Reposições, Calendário, Feriados, Recessos, Mensagens, Relatórios, Exportar, Configurações
+ * Professor:   Minha Agenda | Disponibilidade | Turmas | Calendário | Provas | Faltas | Mensagens | Perfil
+ * Aluno:       Calendário | Minhas Aulas | Provas | Faltas | Mensagens | Perfil
  */
 
 import { useAuthStore, type PageKey } from '@/lib/store';
@@ -41,6 +41,9 @@ import {
   BookOpen,
   MessageSquare,
   User,
+  FileText,
+  ClipboardCheck,
+  Layers,
 } from 'lucide-react';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -57,24 +60,28 @@ interface MenuItem {
 
 const coordinatorMenu: MenuItem[] = [
   { key: 'dashboard',     label: 'Dashboard',     icon: Home },
+  { key: 'agenda',        label: 'Agenda',        icon: Calendar },
   { key: 'professores',   label: 'Professores',   icon: GraduationCap },
   { key: 'alunos',        label: 'Alunos',        icon: Users },
-  { key: 'agenda',        label: 'Agenda',        icon: Calendar },
+  { key: 'turmas',        label: 'Turmas',        icon: Layers },
+  { key: 'provas',        label: 'Provas',        icon: FileText },
+  { key: 'reposicoes',    label: 'Reposições',    icon: RotateCcw },
   { key: 'calendario',    label: 'Calendário',    icon: CalendarDays },
   { key: 'feriados',      label: 'Feriados',      icon: PartyPopper },
   { key: 'recessos',      label: 'Recessos',      icon: Palmtree },
-  { key: 'agendamentos',  label: 'Agendamentos',  icon: ClipboardList },
-  { key: 'reposicoes',    label: 'Reposições',    icon: RotateCcw },
+  { key: 'mensagens',     label: 'Mensagens',     icon: MessageSquare },
   { key: 'relatorios',    label: 'Relatórios',    icon: BarChart3 },
   { key: 'exportar',      label: 'Exportar',      icon: Download },
-  { key: 'mensagens',     label: 'Mensagens',     icon: MessageSquare },
   { key: 'configuracoes', label: 'Configurações', icon: Settings },
 ];
 
 const teacherMenu: MenuItem[] = [
   { key: 'minha-agenda',    label: 'Minha Agenda',    icon: Calendar },
   { key: 'disponibilidade', label: 'Disponibilidade', icon: CalendarClock },
+  { key: 'turmas',          label: 'Turmas',          icon: Layers },
   { key: 'calendario',      label: 'Calendário',      icon: CalendarDays },
+  { key: 'provas',          label: 'Provas',          icon: FileText },
+  { key: 'faltas',          label: 'Faltas',          icon: ClipboardCheck },
   { key: 'mensagens',       label: 'Mensagens',       icon: MessageSquare },
   { key: 'perfil',          label: 'Perfil',          icon: User },
 ];
@@ -82,6 +89,8 @@ const teacherMenu: MenuItem[] = [
 const studentMenu: MenuItem[] = [
   { key: 'calendario',   label: 'Calendário',   icon: CalendarDays },
   { key: 'minhas-aulas', label: 'Minhas Aulas', icon: BookOpen },
+  { key: 'provas',       label: 'Provas',       icon: FileText },
+  { key: 'faltas',       label: 'Faltas',       icon: ClipboardCheck },
   { key: 'mensagens',    label: 'Mensagens',    icon: MessageSquare },
   { key: 'perfil',       label: 'Perfil',       icon: User },
 ];

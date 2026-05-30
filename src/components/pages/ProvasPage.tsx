@@ -1,9 +1,19 @@
-'use client'
+'use client';
 
-import { useState, useEffect, useCallback } from 'react'
-import { useAppStore } from '@/lib/store'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
+/**
+ * ProvasPage.tsx — Gestão de provas.
+ * Coordenador: CRUD completo
+ * Professor: visualiza provas de suas turmas
+ * Aluno: visualiza provas de suas turmas
+ */
+
+import { useEffect, useState, useCallback } from 'react';
+import { useAuthStore, authFetch } from '@/lib/store';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
   DialogContent,
@@ -11,17 +21,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
+} from '@/components/ui/dialog';
 import {
   Table,
   TableBody,
@@ -29,413 +29,359 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '@/components/ui/table'
+} from '@/components/ui/table';
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Badge } from '@/components/ui/badge'
-import { useToast } from '@/hooks/use-toast'
-import { Plus, Pencil, Trash2, Loader2, Filter } from 'lucide-react'
+} from '@/components/ui/select';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  FileText,
+  Plus,
+  MoreHorizontal,
+  Pencil,
+  Trash2,
+  Search,
+  Loader2,
+  Calendar,
+  BookOpen,
+} from 'lucide-react';
+import { toast } from 'sonner';
+import { format, parseISO } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 
-interface ClassItem {
-  id: string
-  name: string
-  subject: string
-  teacher: { id: string; user: { name: string } }
+/* ------------------------------------------------------------------ */
+
+interface Test {
+  id: string;
+  title: string;
+  date: string;
+  classId: string;
+  class?: { id: string; name: string; subject: string };
+  description?: string;
+  createdAt: string;
 }
 
-interface TestItem {
-  id: string
-  classId: string
-  title: string
-  date: string
-  class: { id: string; name: string; subject: string }
+interface Turma {
+  id: string;
+  name: string;
+  subject: string;
+  teacherId: string;
 }
 
-export default function ProvasPage() {
-  const { authFetch } = useAppStore()
-  const { toast } = useToast()
+/* ------------------------------------------------------------------ */
 
-  const [tests, setTests] = useState<TestItem[]>([])
-  const [classes, setClasses] = useState<ClassItem[]>([])
-  const [loading, setLoading] = useState(true)
-  const [filterClassId, setFilterClassId] = useState<string>('all')
+export function ProvasPage() {
+  const { user } = useAuthStore();
+  const isCoordinator = user?.role === 'coordinator';
 
-  // Create dialog
-  const [createOpen, setCreateOpen] = useState(false)
-  const [createForm, setCreateForm] = useState({ classId: '', title: '', date: '' })
-  const [saving, setSaving] = useState(false)
+  const [tests, setTests] = useState<Test[]>([]);
+  const [turmas, setTurmas] = useState<Turma[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
 
-  // Edit dialog
-  const [editOpen, setEditOpen] = useState(false)
-  const [editTest, setEditTest] = useState<TestItem | null>(null)
-  const [editForm, setEditForm] = useState({ classId: '', title: '', date: '' })
+  // Dialog
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingTest, setEditingTest] = useState<Test | null>(null);
+  const [form, setForm] = useState({ title: '', date: '', classId: '', description: '' });
+  const [submitting, setSubmitting] = useState(false);
 
-  // Delete dialog
-  const [deleteOpen, setDeleteOpen] = useState(false)
-  const [deleteTest, setDeleteTest] = useState<TestItem | null>(null)
-  const [deleting, setDeleting] = useState(false)
-
-  const fetchTests = useCallback(async () => {
+  /* ---- Load ---- */
+  const loadData = useCallback(async () => {
     try {
-      const res = await authFetch('/api/tests')
-      if (res.ok) {
-        const data = await res.json()
-        setTests(data)
-      }
+      const [tRes, cRes] = await Promise.all([
+        authFetch('/api/tests'),
+        authFetch('/api/classes'),
+      ]);
+      const tData = await tRes.json();
+      const cData = await cRes.json();
+      setTests(tData.tests || []);
+      setTurmas(cData.classes || []);
     } catch {
-      toast({ title: 'Erro', description: 'Falha ao carregar provas.', variant: 'destructive' })
+      toast.error('Erro ao carregar provas');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [authFetch, toast])
+  }, []);
 
-  const fetchClasses = useCallback(async () => {
+  useEffect(() => { loadData(); }, [loadData]);
+
+  /* ---- Filtered ---- */
+  const filtered = tests.filter(t => {
+    const q = search.toLowerCase();
+    if (!q) return true;
+    return (
+      t.title.toLowerCase().includes(q) ||
+      t.class?.name?.toLowerCase().includes(q) ||
+      t.class?.subject?.toLowerCase().includes(q)
+    );
+  });
+
+  /* ---- CRUD ---- */
+  const openCreate = () => {
+    setEditingTest(null);
+    setForm({ title: '', date: '', classId: '', description: '' });
+    setDialogOpen(true);
+  };
+
+  const openEdit = (test: Test) => {
+    setEditingTest(test);
+    setForm({
+      title: test.title,
+      date: test.date,
+      classId: test.classId,
+      description: test.description || '',
+    });
+    setDialogOpen(true);
+  };
+
+  const handleSave = async () => {
+    if (!form.title || !form.date || !form.classId) {
+      toast.error('Preencha todos os campos obrigatórios');
+      return;
+    }
+
+    setSubmitting(true);
     try {
-      const res = await authFetch('/api/classes')
-      if (res.ok) {
-        setClasses(await res.json())
-      }
-    } catch {
-      // silent
-    }
-  }, [authFetch])
-
-  useEffect(() => {
-    fetchTests()
-    fetchClasses()
-  }, [fetchTests, fetchClasses])
-
-  const handleCreate = async () => {
-    if (!createForm.classId || !createForm.title || !createForm.date) {
-      toast({ title: 'Erro', description: 'Preencha todos os campos.', variant: 'destructive' })
-      return
-    }
-    setSaving(true)
-    try {
-      const res = await authFetch('/api/tests', {
-        method: 'POST',
-        body: JSON.stringify(createForm),
-      })
-      if (res.ok) {
-        toast({ title: 'Sucesso', description: 'Prova criada com sucesso!' })
-        setCreateOpen(false)
-        setCreateForm({ classId: '', title: '', date: '' })
-        fetchTests()
+      if (editingTest) {
+        const res = await authFetch(`/api/tests/${editingTest.id}`, {
+          method: 'PUT',
+          body: JSON.stringify(form),
+        });
+        if (!res.ok) throw new Error();
+        toast.success('Prova atualizada com sucesso');
       } else {
-        const data = await res.json()
-        toast({ title: 'Erro', description: data.error || 'Falha ao criar prova.', variant: 'destructive' })
+        const res = await authFetch('/api/tests', {
+          method: 'POST',
+          body: JSON.stringify(form),
+        });
+        if (!res.ok) throw new Error();
+        toast.success('Prova criada com sucesso');
       }
+      setDialogOpen(false);
+      loadData();
     } catch {
-      toast({ title: 'Erro', description: 'Falha ao criar prova.', variant: 'destructive' })
+      toast.error('Erro ao salvar prova');
     } finally {
-      setSaving(false)
+      setSubmitting(false);
     }
-  }
+  };
 
-  const openEdit = (test: TestItem) => {
-    setEditTest(test)
-    setEditForm({ classId: test.classId, title: test.title, date: test.date })
-    setEditOpen(true)
-  }
-
-  const handleEdit = async () => {
-    if (!editTest) return
-    if (!editForm.classId || !editForm.title || !editForm.date) {
-      toast({ title: 'Erro', description: 'Preencha todos os campos.', variant: 'destructive' })
-      return
-    }
-    setSaving(true)
+  const handleDelete = async (id: string) => {
+    if (!confirm('Deseja realmente excluir esta prova?')) return;
     try {
-      const res = await authFetch(`/api/tests/${editTest.id}`, {
-        method: 'PUT',
-        body: JSON.stringify(editForm),
-      })
-      if (res.ok) {
-        toast({ title: 'Sucesso', description: 'Prova atualizada com sucesso!' })
-        setEditOpen(false)
-        setEditTest(null)
-        fetchTests()
-      } else {
-        const data = await res.json()
-        toast({ title: 'Erro', description: data.error || 'Falha ao atualizar prova.', variant: 'destructive' })
-      }
+      await authFetch(`/api/tests/${id}`, { method: 'DELETE' });
+      toast.success('Prova excluída');
+      loadData();
     } catch {
-      toast({ title: 'Erro', description: 'Falha ao atualizar prova.', variant: 'destructive' })
-    } finally {
-      setSaving(false)
+      toast.error('Erro ao excluir prova');
     }
-  }
+  };
 
-  const handleDelete = async () => {
-    if (!deleteTest) return
-    setDeleting(true)
-    try {
-      const res = await authFetch(`/api/tests/${deleteTest.id}`, { method: 'DELETE' })
-      if (res.ok) {
-        toast({ title: 'Sucesso', description: 'Prova excluída com sucesso!' })
-        setDeleteOpen(false)
-        setDeleteTest(null)
-        fetchTests()
-      } else {
-        const data = await res.json()
-        toast({ title: 'Erro', description: data.error || 'Falha ao excluir prova.', variant: 'destructive' })
-      }
-    } catch {
-      toast({ title: 'Erro', description: 'Falha ao excluir prova.', variant: 'destructive' })
-    } finally {
-      setDeleting(false)
+  /* ---- Status badge based on date ---- */
+  const getDateBadge = (dateStr: string) => {
+    const testDate = parseISO(dateStr);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    testDate.setHours(0, 0, 0, 0);
+
+    if (testDate < today) {
+      return <Badge variant="secondary" className="text-xs bg-gray-100 text-gray-600">Realizada</Badge>;
+    } else if (testDate.getTime() === today.getTime()) {
+      return <Badge variant="secondary" className="text-xs bg-amber-100 text-amber-700">Hoje</Badge>;
+    } else {
+      return <Badge variant="secondary" className="text-xs bg-emerald-100 text-emerald-700">Agendada</Badge>;
     }
-  }
+  };
 
-  const formatDate = (dateStr: string) => {
-    const [y, m, d] = dateStr.split('-')
-    return `${d}/${m}/${y}`
-  }
-
-  const isPast = (dateStr: string) => {
-    const today = new Date().toISOString().split('T')[0]
-    return dateStr < today
-  }
-
-  const filteredTests = filterClassId === 'all'
-    ? tests
-    : tests.filter((t) => t.classId === filterClassId)
-
+  /* ---- Render ---- */
   if (loading) {
     return (
-      <div className="flex-1 flex items-center justify-center p-8">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <div className="flex items-center justify-center h-60 text-muted-foreground">
+        <Loader2 className="size-6 animate-spin mr-2" />
+        Carregando provas...
       </div>
-    )
+    );
   }
 
   return (
-    <div className="flex-1 p-4 md:p-6 space-y-6">
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight">Provas</h2>
-          <p className="text-muted-foreground">Gerencie o cronograma de provas.</p>
+          <h1 className="text-2xl font-bold tracking-tight">Provas</h1>
+          <p className="text-sm text-muted-foreground">
+            {isCoordinator ? 'Gerencie as provas agendadas' : 'Provas de suas turmas'}
+          </p>
         </div>
-        <Button onClick={() => setCreateOpen(true)}>
-          <Plus className="h-4 w-4 mr-2" />
-          Nova Prova
-        </Button>
+        {isCoordinator && (
+          <Button onClick={openCreate} className="bg-emerald-600 hover:bg-emerald-700">
+            <Plus className="size-4 mr-2" />
+            Nova Prova
+          </Button>
+        )}
       </div>
 
-      {/* Filter */}
-      <div className="flex items-center gap-2">
-        <Filter className="h-4 w-4 text-muted-foreground" />
-        <Label className="text-sm whitespace-nowrap">Filtrar por turma:</Label>
-        <Select value={filterClassId} onValueChange={setFilterClassId}>
-          <SelectTrigger className="w-60">
-            <SelectValue placeholder="Todas as turmas" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todas as turmas</SelectItem>
-            {classes.map((c) => (
-              <SelectItem key={c.id} value={c.id}>
-                {c.name} — {c.subject}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+      {/* Search */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+        <Input
+          className="pl-9"
+          placeholder="Buscar por título, turma ou disciplina..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+        />
       </div>
 
-      {filteredTests.length === 0 ? (
+      {/* Table */}
+      {filtered.length === 0 ? (
         <Card>
-          <CardContent className="py-12 text-center">
-            <p className="text-muted-foreground">Nenhuma prova cadastrada.</p>
+          <CardContent className="p-8 text-center text-muted-foreground">
+            <FileText className="size-12 mx-auto mb-3 opacity-30" />
+            <p>Nenhuma prova encontrada</p>
           </CardContent>
         </Card>
       ) : (
         <Card>
           <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Turma</TableHead>
-                    <TableHead>Título</TableHead>
-                    <TableHead>Data</TableHead>
-                    <TableHead className="text-right">Ações</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredTests.map((test) => (
-                    <TableRow key={test.id}>
-                      <TableCell>
-                        <Badge variant="secondary">{test.class.name}</Badge>
-                      </TableCell>
-                      <TableCell className="font-medium">{test.title}</TableCell>
-                      <TableCell>
-                        <span className={isPast(test.date) ? 'text-muted-foreground' : ''}>
-                          {formatDate(test.date)}
-                        </span>
-                        {isPast(test.date) && (
-                          <Badge variant="outline" className="ml-2 text-xs">Realizada</Badge>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Título</TableHead>
+                  <TableHead>Turma</TableHead>
+                  <TableHead>Data</TableHead>
+                  <TableHead>Status</TableHead>
+                  {isCoordinator && <TableHead className="w-[80px]">Ações</TableHead>}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filtered.map(test => (
+                  <TableRow key={test.id}>
+                    <TableCell className="font-medium">
+                      <div className="flex items-center gap-2">
+                        <FileText className="size-4 text-purple-500 shrink-0" />
+                        {test.title}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-1">
+                        <BookOpen className="size-3.5 text-muted-foreground" />
+                        <span>{test.class?.name || '—'}</span>
+                        {test.class?.subject && (
+                          <Badge variant="outline" className="text-xs ml-1">{test.class.subject}</Badge>
                         )}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-1">
+                        <Calendar className="size-3.5 text-muted-foreground" />
+                        {format(parseISO(test.date), "dd 'de' MMMM 'de' yyyy", { locale: ptBR })}
+                      </div>
+                    </TableCell>
+                    <TableCell>{getDateBadge(test.date)}</TableCell>
+                    {isCoordinator && (
+                      <TableCell>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="size-8">
+                              <MoreHorizontal className="size-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => openEdit(test)}>
+                              <Pencil className="size-4 mr-2" />
+                              Editar
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              className="text-destructive"
+                              onClick={() => handleDelete(test.id)}
+                            >
+                              <Trash2 className="size-4 mr-2" />
+                              Excluir
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          <Button variant="ghost" size="sm" onClick={() => openEdit(test)}>
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => { setDeleteTest(test); setDeleteOpen(true) }}
-                          >
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+                    )}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           </CardContent>
         </Card>
       )}
 
-      {/* Create Dialog */}
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent>
+      {/* Create/Edit Dialog */}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Nova Prova</DialogTitle>
-            <DialogDescription>Agende uma nova prova.</DialogDescription>
+            <DialogTitle>{editingTest ? 'Editar Prova' : 'Nova Prova'}</DialogTitle>
+            <DialogDescription>
+              {editingTest ? 'Atualize os dados da prova' : 'Agende uma nova prova'}
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="create-class">Turma</Label>
-              <Select
-                value={createForm.classId}
-                onValueChange={(v) => setCreateForm({ ...createForm, classId: v })}
-              >
+              <Label>Título *</Label>
+              <Input
+                placeholder="Ex: Prova de Matemática - 1º Bimestre"
+                value={form.title}
+                onChange={e => setForm({ ...form, title: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Turma *</Label>
+              <Select value={form.classId} onValueChange={v => setForm({ ...form, classId: v })}>
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione a turma" />
                 </SelectTrigger>
                 <SelectContent>
-                  {classes.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.name} — {c.subject}
+                  {turmas.map(t => (
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.name} — {t.subject}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="create-title">Título</Label>
+              <Label>Data *</Label>
               <Input
-                id="create-title"
-                value={createForm.title}
-                onChange={(e) => setCreateForm({ ...createForm, title: e.target.value })}
-                placeholder="Título da prova"
+                type="date"
+                value={form.date}
+                onChange={e => setForm({ ...form, date: e.target.value })}
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="create-date">Data</Label>
+              <Label>Descrição (opcional)</Label>
               <Input
-                id="create-date"
-                type="date"
-                value={createForm.date}
-                onChange={(e) => setCreateForm({ ...createForm, date: e.target.value })}
+                placeholder="Ex: Capítulos 1-5"
+                value={form.description}
+                onChange={e => setForm({ ...form, description: e.target.value })}
               />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setCreateOpen(false)}>
-              Cancelar
-            </Button>
-            <Button onClick={handleCreate} disabled={saving}>
-              {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              Criar
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Edit Dialog */}
-      <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Editar Prova</DialogTitle>
-            <DialogDescription>Altere os dados da prova.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="edit-class">Turma</Label>
-              <Select
-                value={editForm.classId}
-                onValueChange={(v) => setEditForm({ ...editForm, classId: v })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione a turma" />
-                </SelectTrigger>
-                <SelectContent>
-                  {classes.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.name} — {c.subject}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="edit-title">Título</Label>
-              <Input
-                id="edit-title"
-                value={editForm.title}
-                onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="edit-date">Data</Label>
-              <Input
-                id="edit-date"
-                type="date"
-                value={editForm.date}
-                onChange={(e) => setEditForm({ ...editForm, date: e.target.value })}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEditOpen(false)}>
-              Cancelar
-            </Button>
-            <Button onClick={handleEdit} disabled={saving}>
-              {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              Salvar
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancelar</Button>
+            <Button
+              onClick={handleSave}
+              disabled={submitting}
+              className="bg-emerald-600 hover:bg-emerald-700"
+            >
+              {submitting && <Loader2 className="size-4 mr-2 animate-spin" />}
+              {editingTest ? 'Salvar' : 'Criar'}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {/* Delete Confirmation */}
-      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Excluir Prova</AlertDialogTitle>
-            <AlertDialogDescription>
-              Tem certeza que deseja excluir a prova &quot;{deleteTest?.title}&quot;? Esta ação não pode ser desfeita.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} disabled={deleting}>
-              {deleting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              Excluir
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
-  )
+  );
 }

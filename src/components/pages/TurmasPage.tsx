@@ -1,9 +1,19 @@
-'use client'
+'use client';
 
-import { useState, useEffect, useCallback } from 'react'
-import { useAppStore } from '@/lib/store'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+/**
+ * TurmasPage.tsx — Gestão completa de turmas (classes).
+ * Coordenador: CRUD completo
+ * Professor: visualiza apenas suas turmas
+ * Aluno: visualiza turmas em que está matriculado
+ */
+
+import { useEffect, useState, useCallback } from 'react';
+import { useAuthStore, authFetch } from '@/lib/store';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
   DialogContent,
@@ -11,17 +21,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
+} from '@/components/ui/dialog';
 import {
   Table,
   TableBody,
@@ -29,442 +29,420 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '@/components/ui/table'
+} from '@/components/ui/table';
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Badge } from '@/components/ui/badge'
-import { ScrollArea } from '@/components/ui/scroll-area'
-import { useToast } from '@/hooks/use-toast'
-import { Plus, Pencil, Trash2, Users, Search, X, Loader2 } from 'lucide-react'
+} from '@/components/ui/select';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  Layers,
+  Plus,
+  MoreHorizontal,
+  Pencil,
+  Trash2,
+  Eye,
+  Users,
+  GraduationCap,
+  BookOpen,
+  Search,
+  Loader2,
+  UserPlus,
+  UserMinus,
+  Calendar,
+  FileText,
+  ArrowLeft,
+} from 'lucide-react';
+import { toast } from 'sonner';
+import { format, parseISO } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
+
+/* ------------------------------------------------------------------ */
+
+interface Turma {
+  id: string;
+  name: string;
+  subject: string;
+  teacherId: string;
+  teacher?: { id: string; name: string; subjects: string };
+  students?: { id: string; name: string; email: string }[];
+  _count?: { students: number };
+  createdAt: string;
+}
 
 interface Teacher {
-  id: string
-  userId: string
-  user: { id: string; name: string; email: string }
+  id: string;
+  name: string;
+  subjects: string;
 }
 
-interface ClassStudent {
-  id: string
-  studentId: string
-  student: {
-    id: string
-    user: { id: string; name: string; email: string }
-  }
+interface Student {
+  id: string;
+  name: string;
+  email: string;
 }
 
-interface Appointment {
-  id: string
-  date: string
-  startTime: string
-  endTime: string
-  status: string
+interface Booking {
+  id: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  studentName: string;
+  status: string;
+  bookingType: string;
 }
 
-interface ClassItem {
-  id: string
-  name: string
-  subject: string
-  teacherId: string
-  teacher: { id: string; user: { name: string } }
-  classStudents: ClassStudent[]
-  appointments: Appointment[]
-  appointmentsCount: number
+interface Test {
+  id: string;
+  title: string;
+  date: string;
+  className: string;
 }
 
-interface StudentItem {
-  id: string
-  userId: string
-  user: { id: string; name: string; email: string }
-}
+/* ------------------------------------------------------------------ */
 
-export default function TurmasPage() {
-  const { authFetch } = useAppStore()
-  const { toast } = useToast()
+export function TurmasPage() {
+  const { user } = useAuthStore();
+  const isCoordinator = user?.role === 'coordinator';
 
-  const [classes, setClasses] = useState<ClassItem[]>([])
-  const [teachers, setTeachers] = useState<Teacher[]>([])
-  const [allStudents, setAllStudents] = useState<StudentItem[]>([])
-  const [loading, setLoading] = useState(true)
+  const [turmas, setTurmas] = useState<Turma[]>([]);
+  const [teachers, setTeachers] = useState<Teacher[]>([]);
+  const [allStudents, setAllStudents] = useState<Student[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
 
-  // Create dialog
-  const [createOpen, setCreateOpen] = useState(false)
-  const [createForm, setCreateForm] = useState({ name: '', subject: '', teacherId: '' })
-  const [saving, setSaving] = useState(false)
+  // Dialogs
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingTurma, setEditingTurma] = useState<Turma | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [selectedTurma, setSelectedTurma] = useState<Turma | null>(null);
+  const [addStudentOpen, setAddStudentOpen] = useState(false);
 
-  // Edit dialog
-  const [editOpen, setEditOpen] = useState(false)
-  const [editClass, setEditClass] = useState<ClassItem | null>(null)
-  const [editForm, setEditForm] = useState({ name: '', subject: '', teacherId: '' })
+  // Form
+  const [form, setForm] = useState({ name: '', subject: '', teacherId: '' });
 
-  // Delete dialog
-  const [deleteOpen, setDeleteOpen] = useState(false)
-  const [deleteClass, setDeleteClass] = useState<ClassItem | null>(null)
-  const [deleting, setDeleting] = useState(false)
+  // Detail data
+  const [turmaBookings, setTurmaBookings] = useState<Booking[]>([]);
+  const [turmaTests, setTurmaTests] = useState<Test[]>([]);
+  const [turmaStudents, setTurmaStudents] = useState<Student[]>([]);
+  const [detailLoading, setDetailLoading] = useState(false);
 
-  // Manage students dialog
-  const [manageOpen, setManageOpen] = useState(false)
-  const [manageClass, setManageClass] = useState<ClassItem | null>(null)
-  const [studentSearch, setStudentSearch] = useState('')
-  const [addingStudents, setAddingStudents] = useState(false)
-  const [removingStudent, setRemovingStudent] = useState<string | null>(null)
+  // Add student
+  const [selectedStudentId, setSelectedStudentId] = useState('');
 
-  const fetchClasses = useCallback(async () => {
+  /* ---- Load data ---- */
+  const loadData = useCallback(async () => {
     try {
-      const res = await authFetch('/api/classes')
-      if (res.ok) {
-        const data = await res.json()
-        setClasses(data)
-      }
+      const [cRes, tRes, sRes] = await Promise.all([
+        authFetch('/api/classes'),
+        authFetch('/api/teachers'),
+        authFetch('/api/students'),
+      ]);
+      const cData = await cRes.json();
+      const tData = await tRes.json();
+      const sData = await sRes.json();
+      setTurmas(cData.classes || []);
+      setTeachers(tData.teachers || []);
+      setAllStudents(sData.students || []);
     } catch {
-      toast({ title: 'Erro', description: 'Falha ao carregar turmas.', variant: 'destructive' })
+      toast.error('Erro ao carregar turmas');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [authFetch, toast])
+  }, []);
 
-  const fetchTeachers = useCallback(async () => {
+  useEffect(() => { loadData(); }, [loadData]);
+
+  /* ---- Filtered ---- */
+  const filtered = turmas.filter(t => {
+    const q = search.toLowerCase();
+    if (!q) return true;
+    return (
+      t.name.toLowerCase().includes(q) ||
+      t.subject.toLowerCase().includes(q) ||
+      t.teacher?.name?.toLowerCase().includes(q)
+    );
+  });
+
+  /* ---- CRUD ---- */
+  const openCreate = () => {
+    setEditingTurma(null);
+    setForm({ name: '', subject: '', teacherId: '' });
+    setDialogOpen(true);
+  };
+
+  const openEdit = (turma: Turma) => {
+    setEditingTurma(turma);
+    setForm({ name: turma.name, subject: turma.subject, teacherId: turma.teacherId });
+    setDialogOpen(true);
+  };
+
+  const handleSave = async () => {
+    if (!form.name || !form.subject || !form.teacherId) {
+      toast.error('Preencha todos os campos obrigatórios');
+      return;
+    }
+
     try {
-      const res = await authFetch('/api/teachers')
-      if (res.ok) {
-        const data = await res.json()
-        setTeachers(data)
+      if (editingTurma) {
+        const res = await authFetch(`/api/classes/${editingTurma.id}`, {
+          method: 'PUT',
+          body: JSON.stringify(form),
+        });
+        if (!res.ok) throw new Error();
+        toast.success('Turma atualizada com sucesso');
+      } else {
+        const res = await authFetch('/api/classes', {
+          method: 'POST',
+          body: JSON.stringify(form),
+        });
+        if (!res.ok) throw new Error();
+        toast.success('Turma criada com sucesso');
       }
+      setDialogOpen(false);
+      loadData();
     } catch {
-      // silent
+      toast.error('Erro ao salvar turma');
     }
-  }, [authFetch])
+  };
 
-  const fetchAllStudents = useCallback(async () => {
+  const handleDelete = async (id: string) => {
+    if (!confirm('Deseja realmente excluir esta turma?')) return;
     try {
-      const res = await authFetch('/api/students')
-      if (res.ok) {
-        const data = await res.json()
-        setAllStudents(data)
-      }
+      await authFetch(`/api/classes/${id}`, { method: 'DELETE' });
+      toast.success('Turma excluída');
+      loadData();
     } catch {
-      // silent
+      toast.error('Erro ao excluir turma');
     }
-  }, [authFetch])
+  };
 
-  useEffect(() => {
-    fetchClasses()
-    fetchTeachers()
-    fetchAllStudents()
-  }, [fetchClasses, fetchTeachers, fetchAllStudents])
+  /* ---- Detail view ---- */
+  const openDetail = async (turma: Turma) => {
+    setSelectedTurma(turma);
+    setDetailOpen(true);
+    setDetailLoading(true);
 
-  // Create class
-  const handleCreate = async () => {
-    if (!createForm.name || !createForm.subject || !createForm.teacherId) {
-      toast({ title: 'Erro', description: 'Preencha todos os campos.', variant: 'destructive' })
-      return
-    }
-    setSaving(true)
     try {
-      const res = await authFetch('/api/classes', {
+      const [bRes, tRes] = await Promise.all([
+        authFetch(`/api/bookings?classId=${turma.id}`),
+        authFetch(`/api/tests?classId=${turma.id}`),
+      ]);
+      const bData = await bRes.json();
+      const tData = await tRes.json();
+      setTurmaBookings(bData.bookings || []);
+      setTurmaTests(tData.tests || []);
+
+      // Load class students
+      const cRes = await authFetch(`/api/classes/${turma.id}/students`);
+      const cData = await cRes.json();
+      setTurmaStudents(cData.students || []);
+    } catch {
+      setTurmaBookings([]);
+      setTurmaTests([]);
+      setTurmaStudents([]);
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  /* ---- Add/Remove student ---- */
+  const handleAddStudent = async () => {
+    if (!selectedTurma || !selectedStudentId) return;
+    try {
+      const res = await authFetch(`/api/classes/${selectedTurma.id}/students`, {
         method: 'POST',
-        body: JSON.stringify(createForm),
-      })
-      if (res.ok) {
-        toast({ title: 'Sucesso', description: 'Turma criada com sucesso!' })
-        setCreateOpen(false)
-        setCreateForm({ name: '', subject: '', teacherId: '' })
-        fetchClasses()
-      } else {
-        const data = await res.json()
-        toast({ title: 'Erro', description: data.error || 'Falha ao criar turma.', variant: 'destructive' })
-      }
+        body: JSON.stringify({ studentId: selectedStudentId }),
+      });
+      if (!res.ok) throw new Error();
+      toast.success('Aluno adicionado à turma');
+      setAddStudentOpen(false);
+      setSelectedStudentId('');
+      openDetail(selectedTurma);
     } catch {
-      toast({ title: 'Erro', description: 'Falha ao criar turma.', variant: 'destructive' })
-    } finally {
-      setSaving(false)
+      toast.error('Erro ao adicionar aluno');
     }
-  }
+  };
 
-  // Edit class
-  const openEdit = (cls: ClassItem) => {
-    setEditClass(cls)
-    setEditForm({ name: cls.name, subject: cls.subject, teacherId: cls.teacherId })
-    setEditOpen(true)
-  }
-
-  const handleEdit = async () => {
-    if (!editClass) return
-    if (!editForm.name || !editForm.subject || !editForm.teacherId) {
-      toast({ title: 'Erro', description: 'Preencha todos os campos.', variant: 'destructive' })
-      return
-    }
-    setSaving(true)
+  const handleRemoveStudent = async (studentId: string) => {
+    if (!selectedTurma) return;
+    if (!confirm('Remover este aluno da turma?')) return;
     try {
-      const res = await authFetch(`/api/classes/${editClass.id}`, {
-        method: 'PUT',
-        body: JSON.stringify(editForm),
-      })
-      if (res.ok) {
-        toast({ title: 'Sucesso', description: 'Turma atualizada com sucesso!' })
-        setEditOpen(false)
-        setEditClass(null)
-        fetchClasses()
-      } else {
-        const data = await res.json()
-        toast({ title: 'Erro', description: data.error || 'Falha ao atualizar turma.', variant: 'destructive' })
-      }
-    } catch {
-      toast({ title: 'Erro', description: 'Falha ao atualizar turma.', variant: 'destructive' })
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  // Delete class
-  const handleDelete = async () => {
-    if (!deleteClass) return
-    setDeleting(true)
-    try {
-      const res = await authFetch(`/api/classes/${deleteClass.id}`, { method: 'DELETE' })
-      if (res.ok) {
-        toast({ title: 'Sucesso', description: 'Turma excluída com sucesso!' })
-        setDeleteOpen(false)
-        setDeleteClass(null)
-        fetchClasses()
-      } else {
-        const data = await res.json()
-        toast({ title: 'Erro', description: data.error || 'Falha ao excluir turma.', variant: 'destructive' })
-      }
-    } catch {
-      toast({ title: 'Erro', description: 'Falha ao excluir turma.', variant: 'destructive' })
-    } finally {
-      setDeleting(false)
-    }
-  }
-
-  // Manage students
-  const openManage = (cls: ClassItem) => {
-    setManageClass(cls)
-    setStudentSearch('')
-    setManageOpen(true)
-  }
-
-  const addStudents = async (studentIds: string[]) => {
-    if (!manageClass || studentIds.length === 0) return
-    setAddingStudents(true)
-    try {
-      const res = await authFetch(`/api/classes/${manageClass.id}/students`, {
-        method: 'POST',
-        body: JSON.stringify({ studentIds }),
-      })
-      if (res.ok) {
-        toast({ title: 'Sucesso', description: 'Aluno(s) adicionado(s) com sucesso!' })
-        fetchClasses()
-        // Refresh manageClass
-        const updated = await (await authFetch('/api/classes')).json()
-        const found = updated.find((c: ClassItem) => c.id === manageClass.id)
-        if (found) setManageClass(found)
-        setClasses(updated)
-      } else {
-        const data = await res.json()
-        toast({ title: 'Erro', description: data.error || 'Falha ao adicionar alunos.', variant: 'destructive' })
-      }
-    } catch {
-      toast({ title: 'Erro', description: 'Falha ao adicionar alunos.', variant: 'destructive' })
-    } finally {
-      setAddingStudents(false)
-    }
-  }
-
-  const removeStudent = async (studentId: string) => {
-    if (!manageClass) return
-    setRemovingStudent(studentId)
-    try {
-      const res = await authFetch(`/api/classes/${manageClass.id}/students`, {
+      const res = await authFetch(`/api/classes/${selectedTurma.id}/students`, {
         method: 'DELETE',
         body: JSON.stringify({ studentId }),
-      })
-      if (res.ok) {
-        toast({ title: 'Sucesso', description: 'Aluno removido da turma.' })
-        fetchClasses()
-        // Refresh manageClass
-        const updated = await (await authFetch('/api/classes')).json()
-        const found = updated.find((c: ClassItem) => c.id === manageClass.id)
-        if (found) setManageClass(found)
-        setClasses(updated)
-      } else {
-        const data = await res.json()
-        toast({ title: 'Erro', description: data.error || 'Falha ao remover aluno.', variant: 'destructive' })
-      }
+      });
+      if (!res.ok) throw new Error();
+      toast.success('Aluno removido da turma');
+      openDetail(selectedTurma);
     } catch {
-      toast({ title: 'Erro', description: 'Falha ao remover aluno.', variant: 'destructive' })
-    } finally {
-      setRemovingStudent(null)
+      toast.error('Erro ao remover aluno');
     }
-  }
+  };
 
-  const getNextAppointments = (appointments: Appointment[]) => {
-    const today = new Date().toISOString().split('T')[0]
-    const upcoming = appointments
-      .filter((a) => a.date >= today && a.status !== 'cancelled')
-      .sort((a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime))
-      .slice(0, 3)
-    return upcoming
-  }
+  /* ---- Available students to add (not already in the class) ---- */
+  const availableStudents = allStudents.filter(
+    s => !turmaStudents.some(ts => ts.id === s.id)
+  );
 
-  const formatDate = (dateStr: string) => {
-    const [y, m, d] = dateStr.split('-')
-    return `${d}/${m}/${y}`
-  }
-
-  // Get students not in current class for the search
-  const currentStudentIds = new Set(manageClass?.classStudents.map((cs) => cs.studentId) || [])
-  const availableStudents = allStudents.filter((s) => !currentStudentIds.has(s.id))
-  const filteredStudents = studentSearch
-    ? availableStudents.filter((s) =>
-        s.user.name.toLowerCase().includes(studentSearch.toLowerCase())
-      )
-    : availableStudents
-
+  /* ---- Render ---- */
   if (loading) {
     return (
-      <div className="flex-1 flex items-center justify-center p-8">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <div className="flex items-center justify-center h-60 text-muted-foreground">
+        <Loader2 className="size-6 animate-spin mr-2" />
+        Carregando turmas...
       </div>
-    )
+    );
   }
 
   return (
-    <div className="flex-1 p-4 md:p-6 space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight">Turmas</h2>
-          <p className="text-muted-foreground">Gerencie as turmas do sistema.</p>
+          <h1 className="text-2xl font-bold tracking-tight">Turmas</h1>
+          <p className="text-sm text-muted-foreground">
+            {isCoordinator ? 'Gerencie as turmas e suas composições' : 'Visualize suas turmas'}
+          </p>
         </div>
-        <Button onClick={() => setCreateOpen(true)}>
-          <Plus className="h-4 w-4 mr-2" />
-          Nova Turma
-        </Button>
+        {isCoordinator && (
+          <Button onClick={openCreate} className="bg-emerald-600 hover:bg-emerald-700">
+            <Plus className="size-4 mr-2" />
+            Nova Turma
+          </Button>
+        )}
       </div>
 
-      {classes.length === 0 ? (
+      {/* Search */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+        <Input
+          className="pl-9"
+          placeholder="Buscar por nome, disciplina ou professor..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+        />
+      </div>
+
+      {/* Table */}
+      {filtered.length === 0 ? (
         <Card>
-          <CardContent className="py-12 text-center">
-            <p className="text-muted-foreground">Nenhuma turma cadastrada.</p>
+          <CardContent className="p-8 text-center text-muted-foreground">
+            <Layers className="size-12 mx-auto mb-3 opacity-30" />
+            <p>Nenhuma turma encontrada</p>
           </CardContent>
         </Card>
       ) : (
         <Card>
           <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Nome</TableHead>
-                    <TableHead>Matéria</TableHead>
-                    <TableHead>Professor</TableHead>
-                    <TableHead className="text-center">Qtd Alunos</TableHead>
-                    <TableHead>Próximas Aulas</TableHead>
-                    <TableHead className="text-right">Ações</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {classes.map((cls) => {
-                    const next = getNextAppointments(cls.appointments)
-                    return (
-                      <TableRow key={cls.id}>
-                        <TableCell className="font-medium">{cls.name}</TableCell>
-                        <TableCell>{cls.subject}</TableCell>
-                        <TableCell>{cls.teacher.user.name}</TableCell>
-                        <TableCell className="text-center">
-                          <Badge variant="secondary">{cls.classStudents.length}</Badge>
-                        </TableCell>
-                        <TableCell>
-                          {next.length > 0 ? (
-                            <div className="space-y-1">
-                              {next.map((a) => (
-                                <div key={a.id} className="text-xs text-muted-foreground">
-                                  {formatDate(a.date)} {a.startTime}-{a.endTime}
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">Nenhuma aula agendada</span>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Nome</TableHead>
+                  <TableHead>Disciplina</TableHead>
+                  <TableHead>Professor</TableHead>
+                  <TableHead>Alunos</TableHead>
+                  <TableHead className="w-[80px]">Ações</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filtered.map(turma => (
+                  <TableRow key={turma.id}>
+                    <TableCell className="font-medium">{turma.name}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="text-xs">{turma.subject}</Badge>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {turma.teacher?.name || '—'}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="secondary" className="text-xs">
+                        <Users className="size-3 mr-1" />
+                        {turma._count?.students ?? turma.students?.length ?? 0}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="size-8">
+                            <MoreHorizontal className="size-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => openDetail(turma)}>
+                            <Eye className="size-4 mr-2" />
+                            Ver Detalhes
+                          </DropdownMenuItem>
+                          {isCoordinator && (
+                            <>
+                              <DropdownMenuItem onClick={() => openEdit(turma)}>
+                                <Pencil className="size-4 mr-2" />
+                                Editar
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                className="text-destructive"
+                                onClick={() => handleDelete(turma.id)}
+                              >
+                                <Trash2 className="size-4 mr-2" />
+                                Excluir
+                              </DropdownMenuItem>
+                            </>
                           )}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex items-center justify-end gap-1">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => openManage(cls)}
-                              title="Gerenciar Alunos"
-                            >
-                              <Users className="h-4 w-4" />
-                            </Button>
-                            <Button variant="ghost" size="sm" onClick={() => openEdit(cls)}>
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => { setDeleteClass(cls); setDeleteOpen(true) }}
-                            >
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    )
-                  })}
-                </TableBody>
-              </Table>
-            </div>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           </CardContent>
         </Card>
       )}
 
-      {/* Create Dialog */}
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent>
+      {/* Create/Edit Dialog */}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Nova Turma</DialogTitle>
-            <DialogDescription>Preencha os dados para criar uma nova turma.</DialogDescription>
+            <DialogTitle>{editingTurma ? 'Editar Turma' : 'Nova Turma'}</DialogTitle>
+            <DialogDescription>
+              {editingTurma ? 'Atualize os dados da turma' : 'Preencha os dados da nova turma'}
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="create-name">Nome</Label>
+              <Label>Nome *</Label>
               <Input
-                id="create-name"
-                value={createForm.name}
-                onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })}
-                placeholder="Nome da turma"
+                placeholder="Ex: Matemática 9º Ano A"
+                value={form.name}
+                onChange={e => setForm({ ...form, name: e.target.value })}
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="create-subject">Matéria</Label>
+              <Label>Disciplina *</Label>
               <Input
-                id="create-subject"
-                value={createForm.subject}
-                onChange={(e) => setCreateForm({ ...createForm, subject: e.target.value })}
-                placeholder="Matéria"
+                placeholder="Ex: Matemática"
+                value={form.subject}
+                onChange={e => setForm({ ...form, subject: e.target.value })}
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="create-teacher">Professor</Label>
-              <Select
-                value={createForm.teacherId}
-                onValueChange={(v) => setCreateForm({ ...createForm, teacherId: v })}
-              >
+              <Label>Professor *</Label>
+              <Select value={form.teacherId} onValueChange={v => setForm({ ...form, teacherId: v })}>
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione o professor" />
                 </SelectTrigger>
                 <SelectContent>
-                  {teachers.map((t) => (
+                  {teachers.map(t => (
                     <SelectItem key={t.id} value={t.id}>
-                      {t.user.name}
+                      {t.name}{t.subjects ? ` — ${t.subjects.split(',').slice(0, 2).join(', ')}` : ''}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -472,174 +450,195 @@ export default function TurmasPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setCreateOpen(false)}>
-              Cancelar
-            </Button>
-            <Button onClick={handleCreate} disabled={saving}>
-              {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              Criar
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancelar</Button>
+            <Button onClick={handleSave} className="bg-emerald-600 hover:bg-emerald-700">
+              {editingTurma ? 'Salvar' : 'Criar'}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Edit Dialog */}
-      <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent>
+      {/* Class Detail Dialog */}
+      <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
+        <DialogContent className="sm:max-w-3xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Editar Turma</DialogTitle>
-            <DialogDescription>Altere os dados da turma.</DialogDescription>
+            <DialogTitle className="flex items-center gap-2">
+              <Layers className="size-5 text-emerald-600" />
+              {selectedTurma?.name}
+            </DialogTitle>
+            <DialogDescription>
+              {selectedTurma?.subject} — Prof. {selectedTurma?.teacher?.name || '—'}
+            </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="edit-name">Nome</Label>
-              <Input
-                id="edit-name"
-                value={editForm.name}
-                onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="edit-subject">Matéria</Label>
-              <Input
-                id="edit-subject"
-                value={editForm.subject}
-                onChange={(e) => setEditForm({ ...editForm, subject: e.target.value })}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="edit-teacher">Professor</Label>
-              <Select
-                value={editForm.teacherId}
-                onValueChange={(v) => setEditForm({ ...editForm, teacherId: v })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione o professor" />
-                </SelectTrigger>
-                <SelectContent>
-                  {teachers.map((t) => (
-                    <SelectItem key={t.id} value={t.id}>
-                      {t.user.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEditOpen(false)}>
-              Cancelar
-            </Button>
-            <Button onClick={handleEdit} disabled={saving}>
-              {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              Salvar
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
-      {/* Delete Confirmation */}
-      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Excluir Turma</AlertDialogTitle>
-            <AlertDialogDescription>
-              Tem certeza que deseja excluir a turma &quot;{deleteClass?.name}&quot;? Esta ação não pode ser desfeita.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} disabled={deleting}>
-              {deleting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              Excluir
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* Manage Students Dialog */}
-      <Dialog open={manageOpen} onOpenChange={setManageOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Gerenciar Alunos — {manageClass?.name}</DialogTitle>
-            <DialogDescription>Adicione ou remova alunos desta turma.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            {/* Current students */}
-            <div>
-              <Label className="text-sm font-medium">Alunos na turma ({manageClass?.classStudents.length || 0})</Label>
-              <ScrollArea className="max-h-48 mt-2">
-                {manageClass && manageClass.classStudents.length > 0 ? (
-                  <div className="space-y-2 pr-2">
-                    {manageClass.classStudents.map((cs) => (
-                      <div
-                        key={cs.id}
-                        className="flex items-center justify-between rounded-md border px-3 py-2"
-                      >
-                        <span className="text-sm">{cs.student.user.name}</span>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => removeStudent(cs.studentId)}
-                          disabled={removingStudent === cs.studentId}
-                        >
-                          {removingStudent === cs.studentId ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <X className="h-4 w-4 text-destructive" />
-                          )}
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground py-2">Nenhum aluno nesta turma.</p>
-                )}
-              </ScrollArea>
+          {detailLoading ? (
+            <div className="flex items-center justify-center h-40 text-muted-foreground">
+              <Loader2 className="size-5 animate-spin mr-2" />
+              Carregando detalhes...
             </div>
-
-            {/* Search and add students */}
-            <div>
-              <Label className="text-sm font-medium">Adicionar alunos</Label>
-              <div className="relative mt-2">
-                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Buscar aluno..."
-                  value={studentSearch}
-                  onChange={(e) => setStudentSearch(e.target.value)}
-                  className="pl-9"
-                />
+          ) : selectedTurma && (
+            <div className="space-y-6">
+              {/* Info cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <Card className="border-emerald-100">
+                  <CardContent className="p-4 text-center">
+                    <GraduationCap className="size-5 text-emerald-600 mx-auto mb-1" />
+                    <p className="text-sm font-medium">{selectedTurma.teacher?.name || '—'}</p>
+                    <p className="text-xs text-muted-foreground">Professor</p>
+                  </CardContent>
+                </Card>
+                <Card className="border-blue-100">
+                  <CardContent className="p-4 text-center">
+                    <BookOpen className="size-5 text-blue-600 mx-auto mb-1" />
+                    <p className="text-sm font-medium">{selectedTurma.subject}</p>
+                    <p className="text-xs text-muted-foreground">Disciplina</p>
+                  </CardContent>
+                </Card>
+                <Card className="border-amber-100">
+                  <CardContent className="p-4 text-center">
+                    <Users className="size-5 text-amber-600 mx-auto mb-1" />
+                    <p className="text-sm font-medium">{turmaStudents.length}</p>
+                    <p className="text-xs text-muted-foreground">Alunos</p>
+                  </CardContent>
+                </Card>
               </div>
-              <ScrollArea className="max-h-48 mt-2">
-                {filteredStudents.length > 0 ? (
-                  <div className="space-y-1 pr-2">
-                    {filteredStudents.map((s) => (
-                      <div
-                        key={s.id}
-                        className="flex items-center justify-between rounded-md border px-3 py-2 hover:bg-accent/50"
-                      >
-                        <span className="text-sm">{s.user.name}</span>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => addStudents([s.id])}
-                          disabled={addingStudents}
-                        >
-                          {addingStudents ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Adicionar'}
-                        </Button>
+
+              {/* Student list */}
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold flex items-center gap-2">
+                    <Users className="size-4" />
+                    Alunos da Turma
+                  </h3>
+                  {isCoordinator && (
+                    <Button size="sm" variant="outline" onClick={() => setAddStudentOpen(true)}>
+                      <UserPlus className="size-3.5 mr-1" />
+                      Adicionar Aluno
+                    </Button>
+                  )}
+                </div>
+                {turmaStudents.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-4 text-center">
+                    Nenhum aluno nesta turma
+                  </p>
+                ) : (
+                  <div className="space-y-1 max-h-48 overflow-y-auto">
+                    {turmaStudents.map(s => (
+                      <div key={s.id} className="flex items-center justify-between p-2 rounded-lg bg-muted/50 text-sm">
+                        <div>
+                          <span className="font-medium">{s.name}</span>
+                          <span className="text-muted-foreground ml-2 text-xs">{s.email}</span>
+                        </div>
+                        {isCoordinator && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-7 text-red-500 hover:text-red-700 hover:bg-red-50"
+                            onClick={() => handleRemoveStudent(s.id)}
+                          >
+                            <UserMinus className="size-3.5" />
+                          </Button>
+                        )}
                       </div>
                     ))}
                   </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground py-2">
-                    {studentSearch ? 'Nenhum aluno encontrado.' : 'Todos os alunos já estão na turma.'}
-                  </p>
                 )}
-              </ScrollArea>
+              </div>
+
+              {/* Upcoming classes */}
+              <div>
+                <h3 className="text-sm font-semibold flex items-center gap-2 mb-3">
+                  <Calendar className="size-4" />
+                  Próximas Aulas
+                </h3>
+                {turmaBookings.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Nenhuma aula agendada</p>
+                ) : (
+                  <div className="space-y-1 max-h-40 overflow-y-auto">
+                    {turmaBookings.slice(0, 10).map(b => (
+                      <div key={b.id} className="flex items-center gap-3 p-2 rounded-lg bg-muted/50 text-sm">
+                        <Badge variant="outline" className="text-xs shrink-0">
+                          {format(parseISO(b.date), 'dd/MM', { locale: ptBR })}
+                        </Badge>
+                        <span>{b.startTime} - {b.endTime}</span>
+                        <span className="text-muted-foreground">{b.studentName}</span>
+                        <Badge variant="secondary" className={`text-xs ml-auto ${
+                          b.status === 'confirmed' ? 'bg-emerald-100 text-emerald-700' :
+                          b.status === 'cancelled' ? 'bg-red-100 text-red-700' :
+                          'bg-gray-100 text-gray-700'
+                        }`}>
+                          {b.status === 'confirmed' ? 'Confirmada' : b.status === 'cancelled' ? 'Cancelada' : 'Concluída'}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Upcoming tests */}
+              <div>
+                <h3 className="text-sm font-semibold flex items-center gap-2 mb-3">
+                  <FileText className="size-4" />
+                  Próximas Provas
+                </h3>
+                {turmaTests.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Nenhuma prova agendada</p>
+                ) : (
+                  <div className="space-y-1 max-h-40 overflow-y-auto">
+                    {turmaTests.map(t => (
+                      <div key={t.id} className="flex items-center gap-3 p-2 rounded-lg bg-purple-50/50 text-sm">
+                        <FileText className="size-4 text-purple-500 shrink-0" />
+                        <span className="font-medium">{t.title}</span>
+                        <Badge variant="outline" className="text-xs">
+                          {format(parseISO(t.date), "dd 'de' MMM", { locale: ptBR })}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Student Dialog */}
+      <Dialog open={addStudentOpen} onOpenChange={setAddStudentOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Adicionar Aluno à Turma</DialogTitle>
+            <DialogDescription>{selectedTurma?.name}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Select value={selectedStudentId} onValueChange={setSelectedStudentId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Selecione o aluno" />
+              </SelectTrigger>
+              <SelectContent>
+                {availableStudents.length === 0 ? (
+                  <div className="p-2 text-sm text-muted-foreground text-center">
+                    Todos os alunos já estão nesta turma
+                  </div>
+                ) : (
+                  availableStudents.map(s => (
+                    <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
           </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddStudentOpen(false)}>Cancelar</Button>
+            <Button
+              onClick={handleAddStudent}
+              disabled={!selectedStudentId}
+              className="bg-emerald-600 hover:bg-emerald-700"
+            >
+              Adicionar
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
-  )
+  );
 }
