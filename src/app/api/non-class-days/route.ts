@@ -1,15 +1,22 @@
+/**
+ * /api/non-class-days — Dias sem aula
+ * GET: All authenticated users
+ * POST: Only coordinator
+ */
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { requireRole } from '@/lib/auth';
 
 export async function GET(request: NextRequest) {
   try {
+    const authResult = await requireRole(request, 'coordinator', 'teacher', 'student');
+    if (authResult instanceof NextResponse) return authResult;
+
     const { searchParams } = new URL(request.url);
     const month = searchParams.get('month'); // YYYY-MM
 
     const where: Record<string, unknown> = {};
-    if (month) {
-      where.date = { startsWith: month };
-    }
+    if (month) where.date = { startsWith: month };
 
     const nonClassDays = await db.nonClassDay.findMany({
       where,
@@ -25,6 +32,10 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    // Only coordinator can create non-class days
+    const authResult = await requireRole(request, 'coordinator');
+    if (authResult instanceof NextResponse) return authResult;
+
     const body = await request.json();
     const { date, reason } = body;
 
