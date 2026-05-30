@@ -1,20 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { requireRole } from '@/lib/auth';
 
 type Row = Record<string, unknown>;
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const authResult = await requireRole(request, 'coordinator', 'teacher', 'student');
+  if (authResult instanceof NextResponse) return authResult;
+
   try {
     const teachers = await db.teacher.findMany({ orderBy: { name: 'asc' } });
 
-    // Fetch available slots and blocked periods for each teacher
     const teacherIds = (teachers as Row[]).map(t => t['id'] as string);
     const [availableSlots, blockedPeriods] = await Promise.all([
       teacherIds.length ? db.availableSlot.findMany({ where: { teacher_id: { in: teacherIds } } }) : [],
       teacherIds.length ? db.blockedPeriod.findMany({ where: { teacher_id: { in: teacherIds } } }) : [],
     ]);
 
-    // After toCamel, nested objects also have camelCase keys
     return NextResponse.json({
       teachers: (teachers as Row[]).map(t => ({
         ...t,
@@ -29,18 +31,20 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const authResult = await requireRole(request, 'coordinator');
+  if (authResult instanceof NextResponse) return authResult;
+
   try {
-    const body = await request.json();
-    const { name, email, subjects, bio, userId } = body;
+    const body = await request.json() as Record<string, string>;
+    const { name, email, subjects, bio } = body;
 
     if (!name || !email) {
       return NextResponse.json({ error: 'Nome e email são obrigatórios' }, { status: 400 });
     }
 
     const teacher = await db.teacher.create({
-      data: { name, email, subjects: subjects || '', bio: bio || '', user_id: userId || null },
+      data: { name, email, subjects: subjects || '', bio: bio || '' },
     });
-
     return NextResponse.json({ teacher }, { status: 201 });
   } catch (error) {
     console.error('Error creating teacher:', error);
