@@ -1,1064 +1,561 @@
-'use client'
+'use client';
 
-import { useEffect, useState, useCallback, useMemo } from 'react'
-import { useAppStore } from '@/lib/store'
-import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
-import { Badge } from '@/components/ui/badge'
-import { Checkbox } from '@/components/ui/checkbox'
-import { Separator } from '@/components/ui/separator'
+import { useEffect, useState, useCallback } from 'react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
-import { Calendar } from '@/components/ui/calendar'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogCancel,
-  AlertDialogAction,
-} from '@/components/ui/alert-dialog'
-import {
-  CalendarDays,
-  ChevronLeft,
-  ChevronRight,
-  Clock,
-  CheckCircle2,
-  GraduationCap,
-  Users,
-  BookOpen,
-  AlertTriangle,
-  Plus,
-  Calendar as CalendarIcon,
-  X,
-} from 'lucide-react'
-import { toast } from 'sonner'
+} from '@/components/ui/select';
+import { Calendar, Clock, Check, AlertCircle, User, Loader2, RotateCcw, StickyNote } from 'lucide-react';
+import { toast } from 'sonner';
+import { format, addDays, parseISO } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 
-// Types
-interface ClassItem {
-  id: string
-  name: string
-  subject: string
-  teacherId: string
-  teacher: {
-    id: string
-    user: { name: string; email: string }
-  }
-  classStudents: Array<{
-    id: string
-    student: { id: string; user: { name: string } }
-  }>
+interface Teacher {
+  id: string;
+  name: string;
+  email: string;
+  subjects: string;
+  availableSlots: { id: string; dayOfWeek: number; startTime: string; endTime: string }[];
 }
 
-interface AvailabilitySlot {
-  id: string
-  weekday: number
-  startTime: string
-  endTime: string
+interface Student {
+  id: string;
+  name: string;
+  email: string;
 }
 
-interface AppointmentItem {
-  id: string
-  date: string
-  startTime: string
-  endTime: string
-  status: string
-  notes: string
-  recurringGroupId: string | null
-  class: { id: string; name: string; subject: string }
-  teacher: { id: string; user: { name: string } }
-  student: { id: string; user: { name: string } } | null
+interface CancelledBooking {
+  id: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  studentName: string;
+  teacher?: { name: string };
 }
 
-interface HolidayItem {
-  id: string
-  name: string
-  date: string
-}
+const dayNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
-interface RecessItem {
-  id: string
-  startDate: string
-  endDate: string
-  description: string
-}
+export function AgendaPage() {
+  const [teachers, setTeachers] = useState<Teacher[]>([]);
+  const [students, setStudents] = useState<Student[]>([]);
+  const [selectedTeacher, setSelectedTeacher] = useState<string>('');
+  const [selectedDate, setSelectedDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
+  const [selectedSlot, setSelectedSlot] = useState<{ startTime: string; endTime: string } | null>(null);
+  const [selectedStudent, setSelectedStudent] = useState<string>('');
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [availableSlots, setAvailableSlots] = useState<{ startTime: string; endTime: string; available: boolean; reason?: string }[]>([]);
+  const [refreshKey, setRefreshKey] = useState(0);
 
-type WizardStep = 1 | 2 | 3 | 4 | 5
+  // New fields for reposição and notes
+  const [isReposition, setIsReposition] = useState(false);
+  const [originalBookingId, setOriginalBookingId] = useState('');
+  const [cancelledBookings, setCancelledBookings] = useState<CancelledBooking[]>([]);
+  const [notes, setNotes] = useState('');
 
-const weekdayNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab']
-const weekdayFullNames = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado']
-const monthNames = [
-  'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
-  'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
-]
-
-function formatDateLong(dateStr: string): string {
-  const d = new Date(dateStr + 'T12:00:00')
-  return `${d.getDate()} de ${monthNames[d.getMonth()]} de ${d.getFullYear()}`
-}
-
-function dateToString(date: Date): string {
-  const y = date.getFullYear()
-  const m = String(date.getMonth() + 1).padStart(2, '0')
-  const d = String(date.getDate()).padStart(2, '0')
-  return `${y}-${m}-${d}`
-}
-
-export default function AgendaPage() {
-  const { authFetch } = useAppStore()
-
-  // Data
-  const [classes, setClasses] = useState<ClassItem[]>([])
-  const [holidays, setHolidays] = useState<HolidayItem[]>([])
-  const [recesses, setRecesses] = useState<RecessItem[]>([])
-  const [appointments, setAppointments] = useState<AppointmentItem[]>([])
-  const [availability, setAvailability] = useState<AvailabilitySlot[]>([])
-  const [loading, setLoading] = useState(true)
-
-  // Wizard state
-  const [step, setStep] = useState<WizardStep>(1)
-  const [selectedClassId, setSelectedClassId] = useState('')
-  const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined)
-  const [selectedTimeSlot, setSelectedTimeSlot] = useState<{ startTime: string; endTime: string } | null>(null)
-  const [notes, setNotes] = useState('')
-  const [isRecurring, setIsRecurring] = useState(false)
-  const [recurringEndDate, setRecurringEndDate] = useState<Date | undefined>(undefined)
-  const [creating, setCreating] = useState(false)
-  const [cancelOpen, setCancelOpen] = useState(false)
-  const [cancelAppointmentId, setCancelAppointmentId] = useState<string | null>(null)
-
-  // Load initial data
   const loadData = useCallback(async () => {
     try {
-      const [classesRes, appointmentsRes, holidaysRes, recessesRes] = await Promise.all([
-        authFetch('/api/classes'),
-        authFetch('/api/appointments?from=' + dateToString(new Date())),
-        authFetch('/api/holidays'),
-        authFetch('/api/recesses'),
-      ])
-
-      if (classesRes.ok) setClasses(await classesRes.json())
-      if (appointmentsRes.ok) setAppointments(await appointmentsRes.json())
-      if (holidaysRes.ok) setHolidays(await holidaysRes.json())
-      if (recessesRes.ok) setRecesses(await recessesRes.json())
-    } catch (err) {
-      console.error('Erro ao carregar dados:', err)
+      const [teachersRes, studentsRes] = await Promise.all([
+        fetch('/api/teachers'),
+        fetch('/api/students'),
+      ]);
+      const teachersData = await teachersRes.json();
+      const studentsData = await studentsRes.json();
+      setTeachers(teachersData.teachers || []);
+      setStudents(studentsData.students || []);
+    } catch {
+      toast.error('Erro ao carregar dados');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [authFetch])
+  }, []);
 
   useEffect(() => {
-    loadData()
-  }, [loadData])
+    loadData();
+  }, [loadData]);
 
-  // Derived state
-  const selectedClass = useMemo(
-    () => classes.find((c) => c.id === selectedClassId),
-    [classes, selectedClassId]
-  )
-
-  const selectedTeacher = useMemo(
-    () => selectedClass?.teacher ?? null,
-    [selectedClass]
-  )
-
-  // Load teacher availability when class/teacher is selected
+  // Load cancelled bookings when reposition checkbox is checked
   useEffect(() => {
-    if (selectedTeacher) {
-      authFetch(`/api/teachers/${selectedTeacher.id}/availability`)
-        .then((res) => (res.ok ? res.json() : []))
-        .then((data) => setAvailability(data))
-        .catch(() => setAvailability([]))
-    } else {
-      setAvailability([])
-    }
-  }, [selectedTeacher, authFetch])
-
-  // Get available slots for the selected date
-  const availableSlotsForDate = useMemo(() => {
-    if (!selectedDate || availability.length === 0) return []
-
-    const dayOfWeek = selectedDate.getDay()
-    const dayAvailability = availability.filter((a) => a.weekday === dayOfWeek)
-
-    if (dayAvailability.length === 0) return []
-
-    const dateStr = dateToString(selectedDate)
-
-    // Get booked slots for this teacher on this date
-    const bookedSlots = appointments
-      .filter(
-        (apt) =>
-          apt.teacher.id === selectedTeacher?.id &&
-          apt.date === dateStr &&
-          apt.status !== 'cancelled'
-      )
-      .map((apt) => ({ startTime: apt.startTime, endTime: apt.endTime }))
-
-    // Generate 1-hour time slots from availability
-    const slots: Array<{
-      startTime: string
-      endTime: string
-      available: boolean
-    }> = []
-
-    dayAvailability.forEach((avail) => {
-      const [startH, startM] = avail.startTime.split(':').map(Number)
-      const [endH, endM] = avail.endTime.split(':').map(Number)
-
-      const startMinutes = startH * 60 + startM
-      const endMinutes = endH * 60 + endM
-
-      // Generate 1-hour slots
-      for (let mins = startMinutes; mins + 60 <= endMinutes; mins += 60) {
-        const h = Math.floor(mins / 60)
-        const m = mins % 60
-        const slotStart = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
-        const slotEndH = Math.floor((mins + 60) / 60)
-        const slotEndM = (mins + 60) % 60
-        const slotEnd = `${String(slotEndH).padStart(2, '0')}:${String(slotEndM).padStart(2, '0')}`
-
-        const isBooked = bookedSlots.some(
-          (b) => b.startTime < slotEnd && b.endTime > slotStart
-        )
-
-        slots.push({
-          startTime: slotStart,
-          endTime: slotEnd,
-          available: !isBooked,
+    if (isReposition) {
+      fetch('/api/bookings?status=cancelled')
+        .then((r) => r.json())
+        .then((data) => {
+          setCancelledBookings(data.bookings || []);
         })
+        .catch(() => {
+          setCancelledBookings([]);
+        });
+    }
+  }, [isReposition]);
+
+  // When teacher or date changes, compute available slots
+  useEffect(() => {
+    if (!selectedTeacher || !selectedDate) {
+      setAvailableSlots([]);
+      return;
+    }
+
+    const computeSlots = async () => {
+      const teacher = teachers.find((t) => t.id === selectedTeacher);
+      if (!teacher) return;
+
+      const dateObj = new Date(selectedDate + 'T12:00:00');
+      const dayOfWeek = dateObj.getDay();
+
+      const daySlots = teacher.availableSlots
+        .filter((s) => s.dayOfWeek === dayOfWeek)
+        .sort((a, b) => a.startTime.localeCompare(b.startTime));
+
+      if (daySlots.length === 0) {
+        setAvailableSlots([]);
+        return;
       }
-    })
 
-    return slots
-  }, [selectedDate, availability, appointments, selectedTeacher])
+      // Fetch existing bookings and blocked slots for this teacher+date
+      try {
+        const [bookingsRes, blockedRes, holidaysRes, recessesRes] = await Promise.all([
+          fetch(`/api/bookings?teacherId=${selectedTeacher}&date=${selectedDate}`),
+          fetch(`/api/blocked-slots?teacherId=${selectedTeacher}&date=${selectedDate}`),
+          fetch(`/api/holidays?year=${selectedDate.substring(0, 4)}&month=${selectedDate.substring(5, 7)}`),
+          fetch('/api/recesses'),
+        ]);
 
-  // Check if date is holiday or recess
-  const getDateWarning = (date: Date): { type: 'holiday' | 'recess'; message: string } | null => {
-    const dateStr = dateToString(date)
+        const bookingsData = await bookingsRes.json();
+        const blockedData = await blockedRes.json();
+        const holidaysData = await holidaysRes.json();
+        const recessesData = await recessesRes.json();
 
-    const holiday = holidays.find((h) => h.date === dateStr)
-    if (holiday) {
-      return { type: 'holiday', message: `Feriado: ${holiday.name}` }
-    }
+        const bookedSlots = new Set(
+          (bookingsData.bookings || [])
+            .filter((b: { status: string }) => b.status === 'confirmed')
+            .map((b: { startTime: string; endTime: string }) => `${b.startTime}-${b.endTime}`)
+        );
 
-    const recess = recesses.find(
-      (r) => r.startDate <= dateStr && r.endDate >= dateStr
-    )
-    if (recess) {
-      return { type: 'recess', message: `Recesso: ${recess.description}` }
-    }
+        const blockedSlotKeys = new Set(
+          (blockedData.blockedSlots || []).map((b: { startTime: string; endTime: string }) => `${b.startTime}-${b.endTime}`)
+        );
 
-    return null
-  }
+        const isHoliday = (holidaysData.holidays || []).some((h: { date: string }) => h.date === selectedDate);
+        const isRecess = (recessesData.recesses || []).some(
+          (r: { startDate: string; endDate: string }) => selectedDate >= r.startDate && selectedDate <= r.endDate
+        );
 
-  // Check if teacher is available on a given date
-  const isTeacherAvailableOnDate = (date: Date): boolean => {
-    const dayOfWeek = date.getDay()
-    return availability.some((a) => a.weekday === dayOfWeek)
-  }
+        const slots = daySlots.map((slot) => {
+          const key = `${slot.startTime}-${slot.endTime}`;
+          let available = true;
+          let reason: string | undefined;
 
-  // Step navigation
-  const canGoNext = (): boolean => {
-    switch (step) {
-      case 1:
-        return !!selectedClassId
-      case 2:
-        return !!selectedTeacher
-      case 3:
-        return !!selectedDate && !getDateWarning(selectedDate)
-      case 4:
-        return !!selectedTimeSlot
-      case 5:
-        if (isRecurring && !recurringEndDate) return false
-        return true
-      default:
-        return false
-    }
-  }
+          if (isHoliday) {
+            available = false;
+            reason = 'Feriado';
+          } else if (isRecess) {
+            available = false;
+            reason = 'Recesso';
+          } else if (blockedSlotKeys.has(key)) {
+            available = false;
+            reason = 'Bloqueado';
+          } else if (bookedSlots.has(key)) {
+            available = false;
+            reason = 'Já agendado';
+          }
 
-  const goNext = () => {
-    if (step < 5 && canGoNext()) {
-      setStep((step + 1) as WizardStep)
-    }
-  }
+          return { startTime: slot.startTime, endTime: slot.endTime, available, reason };
+        });
 
-  const goBack = () => {
-    if (step > 1) {
-      setStep((step - 1) as WizardStep)
-      if (step === 3) {
-        setSelectedDate(undefined)
-        setSelectedTimeSlot(null)
+        setAvailableSlots(slots);
+      } catch {
+        setAvailableSlots(
+          daySlots.map((s) => ({ startTime: s.startTime, endTime: s.endTime, available: true }))
+        );
       }
-      if (step === 4) {
-        setSelectedTimeSlot(null)
-      }
-    }
-  }
+    };
 
-  const resetWizard = () => {
-    setStep(1)
-    setSelectedClassId('')
-    setSelectedDate(undefined)
-    setSelectedTimeSlot(null)
-    setNotes('')
-    setIsRecurring(false)
-    setRecurringEndDate(undefined)
-  }
+    computeSlots();
+  }, [selectedTeacher, selectedDate, teachers, refreshKey]);
 
-  // Create appointment
-  const handleCreateAppointment = async () => {
-    if (!selectedClassId || !selectedTeacher || !selectedDate || !selectedTimeSlot) {
-      toast.error('Preencha todos os campos obrigatórios.')
-      return
+  const handleBooking = async () => {
+    if (!selectedTeacher || !selectedDate || !selectedSlot || !selectedStudent) {
+      toast.error('Preencha todos os campos');
+      return;
     }
 
-    setCreating(true)
-    const dateStr = dateToString(selectedDate)
+    if (isReposition && !originalBookingId) {
+      toast.error('Selecione a aula cancelada para a reposição');
+      return;
+    }
 
+    const student = students.find((s) => s.id === selectedStudent);
+    if (!student) return;
+
+    setSubmitting(true);
     try {
-      if (isRecurring && recurringEndDate) {
-        // Create recurring appointment
-        const endDateStr = dateToString(recurringEndDate)
-        const dayOfWeek = selectedDate.getDay()
+      const body: Record<string, unknown> = {
+        teacherId: selectedTeacher,
+        studentName: student.name,
+        studentEmail: student.email,
+        studentProfileId: student.id,
+        date: selectedDate,
+        startTime: selectedSlot.startTime,
+        endTime: selectedSlot.endTime,
+        notes: notes,
+        bookingType: isReposition ? 'reposition' : 'normal',
+      };
 
-        const res = await authFetch('/api/appointments/recurring', {
-          method: 'POST',
-          body: JSON.stringify({
-            classId: selectedClassId,
-            teacherId: selectedTeacher.id,
-            dayOfWeek,
-            startTime: selectedTimeSlot.startTime,
-            endTime: selectedTimeSlot.endTime,
-            startDate: dateStr,
-            endDate: endDateStr,
-            notes,
-          }),
-        })
-
-        if (res.ok) {
-          const data = await res.json()
-          toast.success(
-            `Agendamento recorrente criado! ${data.created} aulas criadas${
-              data.skipped > 0 ? `, ${data.skipped} datas puladas` : ''
-            }.`
-          )
-          resetWizard()
-          loadData()
-        } else {
-          const data = await res.json()
-          toast.error(data.error || 'Erro ao criar agendamento recorrente.')
-        }
-      } else {
-        // Create single appointment
-        const res = await authFetch('/api/appointments', {
-          method: 'POST',
-          body: JSON.stringify({
-            classId: selectedClassId,
-            teacherId: selectedTeacher.id,
-            date: dateStr,
-            startTime: selectedTimeSlot.startTime,
-            endTime: selectedTimeSlot.endTime,
-            notes,
-          }),
-        })
-
-        if (res.ok) {
-          toast.success('Agendamento criado com sucesso!')
-          resetWizard()
-          loadData()
-        } else {
-          const data = await res.json()
-          toast.error(data.error || 'Erro ao criar agendamento.')
-        }
+      if (isReposition) {
+        body.originalBookingId = originalBookingId;
       }
-    } catch {
-      toast.error('Erro de conexão ao criar agendamento.')
+
+      const res = await fetch('/api/bookings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Erro ao criar agendamento');
+      }
+
+      toast.success(isReposition ? 'Reposição agendada com sucesso!' : 'Agendamento criado com sucesso!');
+      setSelectedSlot(null);
+      setNotes('');
+      setIsReposition(false);
+      setOriginalBookingId('');
+      setRefreshKey((k) => k + 1);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Erro ao criar agendamento');
     } finally {
-      setCreating(false)
+      setSubmitting(false);
     }
+  };
+
+  const teacher = teachers.find((t) => t.id === selectedTeacher);
+
+  // Generate next 14 days for date selection
+  const dates = Array.from({ length: 14 }, (_, i) => {
+    const d = addDays(new Date(), i);
+    return {
+      value: format(d, 'yyyy-MM-dd'),
+      label: format(d, "dd/MM · EEE", { locale: ptBR }),
+      dayOfWeek: d.getDay(),
+    };
+  });
+
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {[...Array(3)].map((_, i) => (
+            <Card key={i} className="animate-pulse">
+              <CardContent className="p-6">
+                <div className="h-40 bg-muted rounded" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+    );
   }
-
-  // Cancel appointment
-  const handleCancelAppointment = async () => {
-    if (!cancelAppointmentId) return
-
-    try {
-      const res = await authFetch(`/api/appointments/${cancelAppointmentId}`, {
-        method: 'PUT',
-        body: JSON.stringify({ status: 'cancelled' }),
-      })
-      if (res.ok) {
-        toast.success('Agendamento cancelado com sucesso.')
-        setCancelAppointmentId(null)
-        setCancelOpen(false)
-        loadData()
-      } else {
-        const data = await res.json()
-        toast.error(data.error || 'Erro ao cancelar agendamento.')
-      }
-    } catch {
-      toast.error('Erro de conexão ao cancelar agendamento.')
-    }
-  }
-
-  // Today and this week's appointments
-  const today = dateToString(new Date())
-  const todayAppointments = appointments.filter((a) => a.date === today && a.status !== 'cancelled')
-
-  const weekEnd = new Date()
-  weekEnd.setDate(weekEnd.getDate() + 7)
-  const weekEndStr = dateToString(weekEnd)
-  const weekAppointments = appointments
-    .filter((a) => a.date >= today && a.date <= weekEndStr && a.status !== 'cancelled')
-    .sort((a, b) => a.date === b.date ? a.startTime.localeCompare(b.startTime) : a.date.localeCompare(b.date))
-
-  // Step labels
-  const stepLabels = [
-    { num: 1, label: 'Turma' },
-    { num: 2, label: 'Professor' },
-    { num: 3, label: 'Data' },
-    { num: 4, label: 'Horário' },
-    { num: 5, label: 'Confirmar' },
-  ]
 
   return (
-    <div className="flex-1 p-4 md:p-6 space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            <CalendarDays className="h-6 w-6 text-emerald-600" />
-            Agenda
-          </h2>
-          <p className="text-muted-foreground text-sm mt-1">
-            Crie e gerencie agendamentos de aulas
-          </p>
-        </div>
-        <Button
-          onClick={resetWizard}
-          className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2"
-        >
-          <Plus className="h-4 w-4" />
-          Novo Agendamento
-        </Button>
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold text-foreground">Agenda</h1>
+        <p className="text-muted-foreground">Agende horários de forma rápida e fácil</p>
       </div>
 
-      {/* Wizard */}
-      <Card className="border-emerald-200 dark:border-emerald-800">
-        <CardHeader>
-          <CardTitle className="text-lg">Novo Agendamento</CardTitle>
-          <CardDescription>Siga os passos para criar um novo agendamento</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {/* Step Indicator */}
-          <div className="flex items-center justify-between mb-8 px-2">
-            {stepLabels.map((s, i) => (
-              <div key={s.num} className="flex items-center">
-                <div className="flex flex-col items-center">
-                  <div
-                    className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold transition-colors ${
-                      step > s.num
-                        ? 'bg-emerald-600 text-white'
-                        : step === s.num
-                        ? 'bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300 ring-2 ring-emerald-600'
-                        : 'bg-muted text-muted-foreground'
-                    }`}
-                  >
-                    {step > s.num ? <CheckCircle2 className="h-4 w-4" /> : s.num}
-                  </div>
-                  <span className="text-xs mt-1 text-muted-foreground hidden sm:block">
-                    {s.label}
-                  </span>
-                </div>
-                {i < stepLabels.length - 1 && (
-                  <div
-                    className={`h-0.5 w-8 sm:w-16 mx-2 transition-colors ${
-                      step > s.num ? 'bg-emerald-600' : 'bg-muted'
-                    }`}
-                  />
-                )}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Step 1: Select Teacher */}
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-2">
+              <div className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 text-sm font-bold">
+                1
               </div>
-            ))}
+              <CardTitle className="text-base">Professor</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <Select value={selectedTeacher} onValueChange={(v) => { setSelectedTeacher(v); setSelectedSlot(null); }}>
+              <SelectTrigger>
+                <SelectValue placeholder="Selecione o professor" />
+              </SelectTrigger>
+              <SelectContent>
+                {teachers.map((t) => (
+                  <SelectItem key={t.id} value={t.id}>
+                    {t.name}
+                    {t.subjects ? ` — ${t.subjects.split(',').slice(0, 2).join(', ')}` : ''}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {teacher && teacher.subjects && (
+              <div className="flex flex-wrap gap-1 mt-3">
+                {teacher.subjects.split(',').filter(Boolean).map((s, i) => (
+                  <Badge key={i} variant="secondary" className="text-xs">
+                    {s.trim()}
+                  </Badge>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Step 2: Select Date */}
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-2">
+              <div className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 text-sm font-bold">
+                2
+              </div>
+              <CardTitle className="text-base">Data</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <Input
+              type="date"
+              value={selectedDate}
+              onChange={(e) => { setSelectedDate(e.target.value); setSelectedSlot(null); }}
+              min={format(new Date(), 'yyyy-MM-dd')}
+            />
+            <div className="flex flex-wrap gap-1 mt-3">
+              {dates.map((d) => (
+                <Button
+                  key={d.value}
+                  variant={selectedDate === d.value ? 'default' : 'outline'}
+                  size="sm"
+                  className={`text-xs h-8 ${
+                    selectedDate === d.value ? 'bg-emerald-600 hover:bg-emerald-700' : ''
+                  }`}
+                  onClick={() => { setSelectedDate(d.value); setSelectedSlot(null); }}
+                >
+                  {d.label}
+                </Button>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Step 3: Select Student */}
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-2">
+              <div className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 text-sm font-bold">
+                3
+              </div>
+              <CardTitle className="text-base">Aluno</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <Select value={selectedStudent} onValueChange={setSelectedStudent}>
+              <SelectTrigger>
+                <SelectValue placeholder="Selecione o aluno" />
+              </SelectTrigger>
+              <SelectContent>
+                {students.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>
+                    {s.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Reposition & Notes Section */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <StickyNote className="size-4 text-emerald-600" />
+            Detalhes Adicionais
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Reposition Checkbox */}
+          <div className="flex items-center gap-3 p-3 rounded-lg bg-purple-50 border border-purple-200">
+            <Checkbox
+              id="isReposition"
+              checked={isReposition}
+              onCheckedChange={(checked) => {
+                setIsReposition(checked === true);
+                if (!checked) {
+                  setOriginalBookingId('');
+                }
+              }}
+            />
+            <div className="flex-1">
+              <Label htmlFor="isReposition" className="cursor-pointer font-medium text-purple-700">
+                <RotateCcw className="size-4 inline mr-1" />
+                Reposição de Aula
+              </Label>
+              <p className="text-xs text-purple-600">Marque se este agendamento é uma reposição</p>
+            </div>
           </div>
 
-          {/* Step 1 - Selecionar Turma */}
-          {step === 1 && (
-            <div className="space-y-4 max-w-md">
-              <div className="flex items-center gap-2 text-sm font-medium text-emerald-700 dark:text-emerald-300">
-                <BookOpen className="h-4 w-4" />
-                Passo 1 — Selecionar Turma
-              </div>
-              <div className="grid gap-2">
-                <Label>Turma</Label>
-                <Select value={selectedClassId} onValueChange={setSelectedClassId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecione uma turma" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {classes.map((cls) => (
-                      <SelectItem key={cls.id} value={cls.id}>
-                        {cls.name} — {cls.subject}
+          {/* Original Booking Selector (only if reposition) */}
+          {isReposition && (
+            <div className="space-y-2">
+              <Label>Aula Cancelada (Original)</Label>
+              <Select value={originalBookingId} onValueChange={setOriginalBookingId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione a aula cancelada" />
+                </SelectTrigger>
+                <SelectContent>
+                  {cancelledBookings.length === 0 ? (
+                    <div className="p-2 text-sm text-muted-foreground text-center">
+                      Nenhuma aula cancelada encontrada
+                    </div>
+                  ) : (
+                    cancelledBookings.map((b) => (
+                      <SelectItem key={b.id} value={b.id}>
+                        {b.date} • {b.startTime}-{b.endTime} • {b.studentName} • {b.teacher?.name || 'Professor'}
                       </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              {selectedClass && (
-                <div className="p-3 rounded-lg border bg-card space-y-1">
-                  <p className="text-sm font-medium">{selectedClass.name}</p>
-                  <p className="text-xs text-muted-foreground">
-                    Matéria: {selectedClass.subject}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Professor: {selectedClass.teacher.user.name}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Alunos: {selectedClass.classStudents.length}
-                  </p>
-                </div>
-              )}
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
             </div>
           )}
 
-          {/* Step 2 - Selecionar Professor (auto-filled) */}
-          {step === 2 && (
-            <div className="space-y-4 max-w-md">
-              <div className="flex items-center gap-2 text-sm font-medium text-emerald-700 dark:text-emerald-300">
-                <GraduationCap className="h-4 w-4" />
-                Passo 2 — Selecionar Professor
+          {/* Notes */}
+          <div className="space-y-2">
+            <Label className="flex items-center gap-1">
+              <StickyNote className="size-4" />
+              Observações
+            </Label>
+            <Textarea
+              placeholder="Ex: Matéria, livro, capítulo, tema da aula..."
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={3}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Available Slots */}
+      {selectedTeacher && selectedDate && (
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-2">
+              <div className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 text-sm font-bold">
+                4
               </div>
-              {selectedTeacher ? (
-                <div className="p-4 rounded-lg border bg-emerald-50 dark:bg-emerald-950/30 space-y-2">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 rounded-lg bg-emerald-100 dark:bg-emerald-900">
-                      <GraduationCap className="h-5 w-5 text-emerald-600" />
-                    </div>
-                    <div>
-                      <p className="font-medium">{selectedTeacher.user.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {selectedTeacher.user.email}
-                      </p>
-                    </div>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Professor definido automaticamente pela turma selecionada.
-                  </p>
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  Nenhum professor associado à turma.
+              <div>
+                <CardTitle className="text-base">Horários Disponíveis</CardTitle>
+                <CardDescription>
+                  {format(parseISO(selectedDate), "dd 'de' MMMM 'de' yyyy", { locale: ptBR })} — {teacher?.name}
+                </CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {availableSlots.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <Calendar className="size-12 mx-auto mb-3 opacity-30" />
+                <p>Nenhum horário disponível nesta data</p>
+                <p className="text-xs mt-1">
+                  O professor pode não ter disponibilidade no {dayNames[new Date(selectedDate + 'T12:00:00').getDay()]}
                 </p>
-              )}
-            </div>
-          )}
-
-          {/* Step 3 - Selecionar Data */}
-          {step === 3 && (
-            <div className="space-y-4">
-              <div className="flex items-center gap-2 text-sm font-medium text-emerald-700 dark:text-emerald-300">
-                <CalendarIcon className="h-4 w-4" />
-                Passo 3 — Selecionar Data
               </div>
-              <div className="flex flex-col sm:flex-row gap-4">
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      className="w-[280px] justify-start text-left font-normal gap-2"
-                    >
-                      <CalendarIcon className="h-4 w-4" />
-                      {selectedDate
-                        ? formatDateLong(dateToString(selectedDate))
-                        : 'Selecione uma data'}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar
-                      mode="single"
-                      selected={selectedDate}
-                      onSelect={(date) => {
-                        setSelectedDate(date)
-                        setSelectedTimeSlot(null)
-                      }}
-                      disabled={(date) => {
-                        const d = dateToString(date)
-                        // Disable past dates
-                        if (d < today) return true
-                        // Disable if no availability on that day
-                        if (!isTeacherAvailableOnDate(date)) return true
-                        return false
-                      }}
-                      modifiers={{
-                        holiday: (date) => {
-                          const d = dateToString(date)
-                          return holidays.some((h) => h.date === d)
-                        },
-                        recess: (date) => {
-                          const d = dateToString(date)
-                          return recesses.some(
-                            (r) => r.startDate <= d && r.endDate >= d
-                          )
-                        },
-                      }}
-                    />
-                  </PopoverContent>
-                </Popover>
-
-                {selectedDate && getDateWarning(selectedDate) && (
-                  <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 max-w-md">
-                    <AlertTriangle className="h-5 w-5 text-amber-600 mt-0.5 shrink-0" />
-                    <div>
-                      <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
-                        {getDateWarning(selectedDate)?.message}
-                      </p>
-                      <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                        Não é possível agendar nesta data.
-                      </p>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {selectedDate && !getDateWarning(selectedDate) && (
-                <div className="p-3 rounded-lg border bg-card space-y-1">
-                  <p className="text-sm font-medium">
-                    {weekdayFullNames[selectedDate.getDay()]},{' '}
-                    {formatDateLong(dateToString(selectedDate))}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {availableSlotsForDate.length > 0
-                      ? `${availableSlotsForDate.filter((s) => s.available).length} horário(s) disponível(is)`
-                      : 'Nenhum horário disponível nesta data'}
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Step 4 - Selecionar Horário */}
-          {step === 4 && (
-            <div className="space-y-4">
-              <div className="flex items-center gap-2 text-sm font-medium text-emerald-700 dark:text-emerald-300">
-                <Clock className="h-4 w-4" />
-                Passo 4 — Selecionar Horário
-              </div>
-              <p className="text-sm text-muted-foreground">
-                Selecione um horário disponível para{' '}
-                <strong>
-                  {selectedDate && weekdayFullNames[selectedDate.getDay()]},{' '}
-                  {selectedDate && formatDateLong(dateToString(selectedDate))}
-                </strong>
-              </p>
-
-              {availableSlotsForDate.length === 0 ? (
-                <div className="p-4 rounded-lg border bg-card text-center">
-                  <p className="text-sm text-muted-foreground">
-                    Nenhum horário disponível nesta data. O professor pode não ter
-                    disponibilidade para este dia da semana.
-                  </p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                  {availableSlotsForDate.map((slot) => {
-                    const isSelected =
-                      selectedTimeSlot?.startTime === slot.startTime &&
-                      selectedTimeSlot?.endTime === slot.endTime
-
-                    return (
-                      <button
-                        key={slot.startTime}
-                        onClick={() => {
-                          if (slot.available) {
-                            setSelectedTimeSlot({
-                              startTime: slot.startTime,
-                              endTime: slot.endTime,
-                            })
-                          }
-                        }}
-                        disabled={!slot.available}
-                        className={`p-3 rounded-lg border text-center transition-all ${
-                          isSelected
-                            ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 ring-2 ring-emerald-500'
-                            : slot.available
-                            ? 'border-border hover:border-emerald-300 hover:bg-emerald-50/50 dark:hover:bg-emerald-950/20 cursor-pointer'
-                            : 'border-muted bg-muted/50 opacity-50 cursor-not-allowed'
-                        }`}
-                      >
-                        <p className={`text-sm font-medium ${isSelected ? 'text-emerald-700 dark:text-emerald-300' : ''}`}>
-                          {slot.startTime} - {slot.endTime}
-                        </p>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          {slot.available ? 'Disponível' : 'Indisponível'}
-                        </p>
-                      </button>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Step 5 - Confirmar */}
-          {step === 5 && (
-            <div className="space-y-4 max-w-lg">
-              <div className="flex items-center gap-2 text-sm font-medium text-emerald-700 dark:text-emerald-300">
-                <CheckCircle2 className="h-4 w-4" />
-                Passo 5 — Confirmar Agendamento
-              </div>
-
-              <div className="p-4 rounded-lg border bg-card space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Turma</span>
-                  <span className="text-sm font-medium">{selectedClass?.name}</span>
-                </div>
-                <Separator />
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Matéria</span>
-                  <span className="text-sm font-medium">{selectedClass?.subject}</span>
-                </div>
-                <Separator />
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Professor</span>
-                  <span className="text-sm font-medium">{selectedTeacher?.user.name}</span>
-                </div>
-                <Separator />
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Data</span>
-                  <span className="text-sm font-medium">
-                    {selectedDate && weekdayFullNames[selectedDate.getDay()]},{' '}
-                    {selectedDate && formatDateLong(dateToString(selectedDate))}
-                  </span>
-                </div>
-                <Separator />
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Horário</span>
-                  <span className="text-sm font-medium">
-                    {selectedTimeSlot?.startTime} - {selectedTimeSlot?.endTime}
-                  </span>
-                </div>
-                {isRecurring && recurringEndDate && (
-                  <>
-                    <Separator />
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-muted-foreground">Recorrente até</span>
-                      <span className="text-sm font-medium">
-                        {formatDateLong(dateToString(recurringEndDate))}
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
+                {availableSlots.map((slot) => (
+                  <Button
+                    key={`${slot.startTime}-${slot.endTime}`}
+                    variant={selectedSlot?.startTime === slot.startTime && selectedSlot?.endTime === slot.endTime ? 'default' : 'outline'}
+                    className={`h-auto py-3 flex flex-col gap-1 ${
+                      !slot.available
+                        ? 'opacity-50 cursor-not-allowed bg-gray-50 border-gray-200 text-gray-400'
+                        : selectedSlot?.startTime === slot.startTime && selectedSlot?.endTime === slot.endTime
+                        ? isReposition
+                          ? 'bg-purple-600 hover:bg-purple-700 text-white'
+                          : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                        : 'hover:bg-emerald-50 hover:border-emerald-200'
+                    }`}
+                    disabled={!slot.available}
+                    onClick={() => slot.available && setSelectedSlot({ startTime: slot.startTime, endTime: slot.endTime })}
+                  >
+                    <div className="flex items-center gap-1">
+                      <Clock className="size-3" />
+                      <span className="font-medium text-sm">
+                        {slot.startTime} - {slot.endTime}
                       </span>
                     </div>
-                  </>
-                )}
-              </div>
-
-              {/* Notes */}
-              <div className="grid gap-2">
-                <Label htmlFor="apt-notes">Observações</Label>
-                <Textarea
-                  id="apt-notes"
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Observações sobre o agendamento (opcional)"
-                  rows={2}
-                />
-              </div>
-
-              {/* Recurring option */}
-              <div className="flex items-start gap-3 p-3 rounded-lg border bg-card">
-                <Checkbox
-                  id="recurring"
-                  checked={isRecurring}
-                  onCheckedChange={(checked) => {
-                    setIsRecurring(checked as boolean)
-                    if (!checked) setRecurringEndDate(undefined)
-                  }}
-                />
-                <div className="space-y-1">
-                  <Label htmlFor="recurring" className="cursor-pointer">
-                    Recorrente
-                  </Label>
-                  <p className="text-xs text-muted-foreground">
-                    Criar agendamento semanal recorrente no mesmo dia e horário
-                  </p>
-                </div>
-              </div>
-
-              {isRecurring && (
-                <div className="grid gap-2">
-                  <Label>Data final da recorrência</Label>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button
-                        variant="outline"
-                        className="w-[280px] justify-start text-left font-normal gap-2"
-                      >
-                        <CalendarIcon className="h-4 w-4" />
-                        {recurringEndDate
-                          ? formatDateLong(dateToString(recurringEndDate))
-                          : 'Selecione a data final'}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0" align="start">
-                      <Calendar
-                        mode="single"
-                        selected={recurringEndDate}
-                        onSelect={setRecurringEndDate}
-                        disabled={(date) => {
-                          const d = dateToString(date)
-                          if (d <= (selectedDate ? dateToString(selectedDate) : '')) return true
-                          return false
-                        }}
-                      />
-                    </PopoverContent>
-                  </Popover>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Navigation Buttons */}
-          <div className="flex items-center justify-between mt-8 pt-4 border-t">
-            <Button
-              variant="outline"
-              onClick={goBack}
-              disabled={step === 1}
-              className="gap-1"
-            >
-              <ChevronLeft className="h-4 w-4" />
-              Voltar
-            </Button>
-
-            <div className="flex items-center gap-2">
-              {step < 5 ? (
-                <Button
-                  onClick={goNext}
-                  disabled={!canGoNext()}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1"
-                >
-                  Próximo
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-              ) : (
-                <Button
-                  onClick={handleCreateAppointment}
-                  disabled={creating || !canGoNext()}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2"
-                >
-                  {creating ? 'Criando...' : 'Criar Agendamento'}
-                  <CheckCircle2 className="h-4 w-4" />
-                </Button>
-              )}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Today's Appointments */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-lg">
-            <CalendarDays className="h-5 w-5 text-emerald-600" />
-            Aulas de Hoje
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <div className="space-y-3">
-              {[1, 2].map((i) => (
-                <div key={i} className="h-16 bg-muted animate-pulse rounded-lg" />
-              ))}
-            </div>
-          ) : todayAppointments.length > 0 ? (
-            <div className="space-y-3">
-              {todayAppointments.map((apt) => (
-                <div
-                  key={apt.id}
-                  className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-lg border bg-card hover:bg-accent/50 transition-colors gap-2"
-                >
-                  <div className="flex items-start gap-3">
-                    <div className="p-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/40">
-                      <Clock className="h-4 w-4 text-emerald-600" />
-                    </div>
-                    <div className="space-y-1">
-                      <p className="font-medium text-sm">
-                        {apt.class.name} — {apt.class.subject}
-                      </p>
-                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                        <span>Prof. {apt.teacher.user.name}</span>
-                        <span>{apt.startTime} - {apt.endTime}</span>
-                        {apt.student && <span>Aluno: {apt.student.user.name}</span>}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge
-                      variant={
-                        apt.status === 'confirmed'
-                          ? 'default'
-                          : apt.status === 'completed'
-                          ? 'secondary'
-                          : 'destructive'
-                      }
-                      className="text-xs"
-                    >
-                      {apt.status === 'confirmed'
-                        ? 'Confirmada'
-                        : apt.status === 'completed'
-                        ? 'Concluída'
-                        : 'Cancelada'}
-                    </Badge>
-                    {apt.status === 'confirmed' && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          setCancelAppointmentId(apt.id)
-                          setCancelOpen(true)
-                        }}
-                        className="text-destructive hover:text-destructive text-xs"
-                      >
-                        <X className="h-3 w-3 mr-1" />
-                        Cancelar
-                      </Button>
+                    {!slot.available && slot.reason && (
+                      <span className="text-xs opacity-70">{slot.reason}</span>
                     )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground text-center py-4">
-              Nenhuma aula agendada para hoje.
-            </p>
-          )}
-        </CardContent>
-      </Card>
+                    {slot.available && (
+                      <span className="text-xs opacity-70">Disponível</span>
+                    )}
+                  </Button>
+                ))}
+              </div>
+            )}
 
-      {/* This Week's Appointments */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-lg">
-            <CalendarDays className="h-5 w-5 text-amber-600" />
-            Próximos 7 Dias
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <div className="space-y-3">
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="h-16 bg-muted animate-pulse rounded-lg" />
-              ))}
-            </div>
-          ) : weekAppointments.length > 0 ? (
-            <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
-              {weekAppointments.map((apt) => {
-                const aptDate = new Date(apt.date + 'T12:00:00')
-                const isToday = apt.date === today
-
-                return (
-                  <div
-                    key={apt.id}
-                    className={`flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-lg border transition-colors gap-2 ${
-                      isToday
-                        ? 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800'
-                        : 'bg-card hover:bg-accent/50'
-                    }`}
-                  >
-                    <div className="flex items-start gap-3">
-                      <div
-                        className={`p-2 rounded-lg ${
-                          isToday
-                            ? 'bg-emerald-100 dark:bg-emerald-900'
-                            : 'bg-muted'
-                        }`}
-                      >
-                        <CalendarDays
-                          className={`h-4 w-4 ${
-                            isToday ? 'text-emerald-600' : 'text-muted-foreground'
-                          }`}
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <p className="font-medium text-sm">
-                          {apt.class.name} — {apt.class.subject}
-                        </p>
-                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                          <span>
-                            {weekdayNames[aptDate.getDay()]}, {aptDate.getDate()}/{aptDate.getMonth() + 1}
-                          </span>
-                          <span>Prof. {apt.teacher.user.name}</span>
-                          <span>{apt.startTime} - {apt.endTime}</span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Badge
-                        variant={
-                          apt.status === 'confirmed'
-                            ? 'default'
-                            : apt.status === 'completed'
-                            ? 'secondary'
-                            : 'destructive'
-                        }
-                        className="text-xs"
-                      >
-                        {apt.status === 'confirmed'
-                          ? 'Confirmada'
-                          : apt.status === 'completed'
-                          ? 'Concluída'
-                          : 'Cancelada'}
-                      </Badge>
-                      {apt.recurringGroupId && (
-                        <Badge variant="outline" className="text-xs gap-1">
-                          <Users className="h-3 w-3" />
-                          Recorrente
-                        </Badge>
+            {selectedSlot && (
+              <div className={`mt-4 p-4 rounded-lg border ${
+                isReposition
+                  ? 'bg-purple-50 border-purple-200'
+                  : 'bg-emerald-50 border-emerald-200'
+              }`}>
+                <div className="flex items-center justify-between flex-wrap gap-4">
+                  <div className="flex items-center gap-3">
+                    <Check className={`size-5 ${isReposition ? 'text-purple-600' : 'text-emerald-600'}`} />
+                    <div>
+                      <p className={`font-medium ${isReposition ? 'text-purple-800' : 'text-emerald-800'}`}>
+                        {selectedSlot.startTime} - {selectedSlot.endTime}
+                      </p>
+                      <p className={`text-sm ${isReposition ? 'text-purple-600' : 'text-emerald-600'}`}>
+                        {teacher?.name} • {students.find((s) => s.id === selectedStudent)?.name || 'Selecione um aluno'}
+                        {isReposition && ' • Reposição'}
+                      </p>
+                      {notes && (
+                        <p className="text-xs text-muted-foreground mt-1">{notes}</p>
                       )}
                     </div>
                   </div>
-                )
-              })}
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground text-center py-4">
-              Nenhuma aula agendada para os próximos 7 dias.
-            </p>
-          )}
-        </CardContent>
-      </Card>
+                  <Button
+                    onClick={handleBooking}
+                    disabled={!selectedStudent || submitting}
+                    className={isReposition ? 'bg-purple-600 hover:bg-purple-700' : 'bg-emerald-600 hover:bg-emerald-700'}
+                  >
+                    {submitting ? (
+                      <Loader2 className="size-4 mr-2 animate-spin" />
+                    ) : isReposition ? (
+                      <RotateCcw className="size-4 mr-2" />
+                    ) : (
+                      <Check className="size-4 mr-2" />
+                    )}
+                    {isReposition ? 'Confirmar Reposição' : 'Confirmar Agendamento'}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
-      {/* Cancel Confirmation */}
-      <AlertDialog open={cancelOpen} onOpenChange={setCancelOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Cancelar Agendamento</AlertDialogTitle>
-            <AlertDialogDescription>
-              Tem certeza que deseja cancelar este agendamento? Esta ação pode ser
-              revertida posteriormente alterando o status.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setCancelAppointmentId(null)}>
-              Manter
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleCancelAppointment}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Cancelar Agendamento
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {!selectedTeacher && (
+        <Card>
+          <CardContent className="p-8 text-center text-muted-foreground">
+            <AlertCircle className="size-12 mx-auto mb-3 opacity-30" />
+            <p>Selecione um professor para ver os horários disponíveis</p>
+          </CardContent>
+        </Card>
+      )}
     </div>
-  )
+  );
 }

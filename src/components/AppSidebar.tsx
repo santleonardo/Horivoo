@@ -1,27 +1,14 @@
-'use client'
+'use client';
 
-import {
-  LayoutDashboard,
-  CalendarPlus,
-  GraduationCap,
-  Users,
-  School,
-  FileText,
-  RotateCcw,
-  Calendar,
-  Flag,
-  Coffee,
-  MessageSquare,
-  BarChart3,
-  Download,
-  Settings,
-  CalendarDays,
-  Clock,
-  BookOpen,
-  User,
-  LogOut,
-} from 'lucide-react'
-import { useAppStore } from '@/lib/store'
+/**
+ * AppSidebar.tsx — Sidebar com navegação por papel (role-based).
+ *
+ * Coordenador: acesso completo
+ * Professor:   Minha Agenda | Disponibilidade | Calendário | Mensagens | Perfil
+ * Aluno:       Calendário | Minhas Aulas | Mensagens | Perfil
+ */
+
+import { useAuthStore, type PageKey } from '@/lib/store';
 import {
   Sidebar,
   SidebarContent,
@@ -35,162 +22,133 @@ import {
   SidebarMenuItem,
   SidebarRail,
   SidebarSeparator,
-} from '@/components/ui/sidebar'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
+} from '@/components/ui/sidebar';
+import {
+  Home,
+  GraduationCap,
+  Users,
+  Calendar,
+  CalendarDays,
+  PartyPopper,
+  Palmtree,
+  ClipboardList,
+  RotateCcw,
+  BarChart3,
+  Download,
+  Settings,
+  LogOut,
+  CalendarClock,
+  BookOpen,
+  MessageSquare,
+  User,
+} from 'lucide-react';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
 
-type NavItem = {
-  label: string
-  page: string
-  icon: React.ComponentType<{ className?: string }>
+/* ------------------------------------------------------------------ */
+
+interface MenuItem {
+  key: PageKey;
+  label: string;
+  icon: React.ElementType;
 }
 
-const coordinatorNav: NavItem[] = [
-  { label: 'Dashboard', page: 'dashboard', icon: LayoutDashboard },
-  { label: 'Agenda', page: 'agenda', icon: CalendarPlus },
-  { label: 'Professores', page: 'professores', icon: GraduationCap },
-  { label: 'Alunos', page: 'alunos', icon: Users },
-  { label: 'Turmas', page: 'turmas', icon: School },
-  { label: 'Provas', page: 'provas', icon: FileText },
-  { label: 'Reposições', page: 'reposicoes', icon: RotateCcw },
-  { label: 'Calendário', page: 'calendario', icon: Calendar },
-  { label: 'Feriados', page: 'feriados', icon: Flag },
-  { label: 'Recessos', page: 'recessos', icon: Coffee },
-  { label: 'Mensagens', page: 'mensagens', icon: MessageSquare },
-  { label: 'Relatórios', page: 'relatorios', icon: BarChart3 },
-  { label: 'Exportar', page: 'exportar', icon: Download },
-  { label: 'Configurações', page: 'configuracoes', icon: Settings },
-]
+// ── Menus por papel ──────────────────────────────────────────────────
 
-const teacherNav: NavItem[] = [
-  { label: 'Minha Agenda', page: 'minha-agenda', icon: CalendarDays },
-  { label: 'Disponibilidade', page: 'disponibilidade', icon: Clock },
-  { label: 'Turmas', page: 'turmas', icon: School },
-  { label: 'Calendário', page: 'calendario', icon: Calendar },
-  { label: 'Mensagens', page: 'mensagens', icon: MessageSquare },
-  { label: 'Perfil', page: 'perfil', icon: User },
-]
+const coordinatorMenu: MenuItem[] = [
+  { key: 'dashboard',     label: 'Dashboard',     icon: Home },
+  { key: 'professores',   label: 'Professores',   icon: GraduationCap },
+  { key: 'alunos',        label: 'Alunos',        icon: Users },
+  { key: 'agenda',        label: 'Agenda',        icon: Calendar },
+  { key: 'calendario',    label: 'Calendário',    icon: CalendarDays },
+  { key: 'feriados',      label: 'Feriados',      icon: PartyPopper },
+  { key: 'recessos',      label: 'Recessos',      icon: Palmtree },
+  { key: 'agendamentos',  label: 'Agendamentos',  icon: ClipboardList },
+  { key: 'reposicoes',    label: 'Reposições',    icon: RotateCcw },
+  { key: 'relatorios',    label: 'Relatórios',    icon: BarChart3 },
+  { key: 'exportar',      label: 'Exportar',      icon: Download },
+  { key: 'mensagens',     label: 'Mensagens',     icon: MessageSquare },
+  { key: 'configuracoes', label: 'Configurações', icon: Settings },
+];
 
-const studentNav: NavItem[] = [
-  { label: 'Calendário', page: 'calendario', icon: Calendar },
-  { label: 'Minhas Aulas', page: 'minhas-aulas', icon: BookOpen },
-  { label: 'Provas', page: 'provas', icon: FileText },
-  { label: 'Mensagens', page: 'mensagens', icon: MessageSquare },
-  { label: 'Perfil', page: 'perfil', icon: User },
-]
+const teacherMenu: MenuItem[] = [
+  { key: 'minha-agenda',    label: 'Minha Agenda',    icon: Calendar },
+  { key: 'disponibilidade', label: 'Disponibilidade', icon: CalendarClock },
+  { key: 'calendario',      label: 'Calendário',      icon: CalendarDays },
+  { key: 'mensagens',       label: 'Mensagens',       icon: MessageSquare },
+  { key: 'perfil',          label: 'Perfil',          icon: User },
+];
 
-const roleLabels: Record<string, string> = {
-  coordinator: 'Coordenador',
-  teacher: 'Professor',
-  student: 'Aluno',
-}
+const studentMenu: MenuItem[] = [
+  { key: 'calendario',   label: 'Calendário',   icon: CalendarDays },
+  { key: 'minhas-aulas', label: 'Minhas Aulas', icon: BookOpen },
+  { key: 'mensagens',    label: 'Mensagens',    icon: MessageSquare },
+  { key: 'perfil',       label: 'Perfil',       icon: User },
+];
 
-const roleColors: Record<string, string> = {
-  coordinator: 'bg-emerald-100 text-emerald-800 border-emerald-200',
-  teacher: 'bg-amber-100 text-amber-800 border-amber-200',
-  student: 'bg-sky-100 text-sky-800 border-sky-200',
-}
+const menuByRole: Record<string, MenuItem[]> = {
+  coordinator: coordinatorMenu,
+  teacher:     teacherMenu,
+  student:     studentMenu,
+};
+
+const roleBadge: Record<string, { label: string; color: string }> = {
+  coordinator: { label: 'Coordenador', color: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
+  teacher:     { label: 'Professor',   color: 'bg-blue-100 text-blue-700 border-blue-200' },
+  student:     { label: 'Aluno',       color: 'bg-amber-100 text-amber-700 border-amber-200' },
+};
+
+/* ------------------------------------------------------------------ */
 
 export function AppSidebar() {
-  const { user, activePage, setActivePage, logout } = useAppStore()
+  const { user, activePage, setActivePage, logout } = useAuthStore();
 
-  if (!user) return null
+  const role      = user?.role || 'student';
+  const menuItems = menuByRole[role] || studentMenu;
+  const badge     = roleBadge[role];
 
-  const navItems =
-    user.role === 'coordinator'
-      ? coordinatorNav
-      : user.role === 'teacher'
-        ? teacherNav
-        : studentNav
-
-  const mainItems = navItems.slice(0, -3)
-  const commItems = navItems.filter(
-    (item) =>
-      item.page === 'mensagens' ||
-      item.page === 'relatorios' ||
-      item.page === 'exportar'
-  )
-  const settingsItems = navItems.filter(
-    (item) =>
-      item.page === 'configuracoes' ||
-      item.page === 'perfil'
-  )
-
-  const initials = user.name
-    .split(' ')
-    .map((n) => n[0])
-    .join('')
-    .toUpperCase()
-    .slice(0, 2)
+  const initials = user?.name
+    ? user.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()
+    : 'U';
 
   return (
-    <Sidebar collapsible="icon" className="border-r-0">
-      <SidebarHeader className="px-4 py-5">
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              size="lg"
-              className="hover:bg-transparent cursor-default"
-            >
-              <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                <svg
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-                  <line x1="16" y1="2" x2="16" y2="6" />
-                  <line x1="8" y1="2" x2="8" y2="6" />
-                  <line x1="3" y1="10" x2="21" y2="10" />
-                </svg>
-              </div>
-              <div className="grid flex-1 text-left text-sm leading-tight">
-                <span className="truncate font-bold text-base tracking-tight">
-                  Horivoo
-                </span>
-                <span className="truncate text-[11px] text-muted-foreground">
-                  Sistema Acadêmico
-                </span>
-              </div>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
+    <Sidebar collapsible="icon" className="border-r border-emerald-100">
+      {/* Logo */}
+      <SidebarHeader className="p-4 group-data-[collapsible=icon]:p-2">
+        <div className="flex items-center gap-3 group-data-[collapsible=icon]:justify-center">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-600 text-white font-bold text-lg">
+            H
+          </div>
+          <div className="flex flex-col group-data-[collapsible=icon]:hidden">
+            <span className="text-lg font-bold text-emerald-700">Horivoo</span>
+            <span className="text-xs text-muted-foreground">Agenda Escolar</span>
+          </div>
+        </div>
       </SidebarHeader>
 
       <SidebarSeparator />
 
+      {/* Nav */}
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
-            Menu Principal
+          <SidebarGroupLabel className="text-emerald-600 font-semibold">
+            Menu
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {mainItems.map((item) => (
-                <SidebarMenuItem key={item.page}>
+              {menuItems.map((item) => (
+                <SidebarMenuItem key={item.key}>
                   <SidebarMenuButton
-                    isActive={activePage === item.page}
-                    onClick={() => setActivePage(item.page as never)}
+                    isActive={activePage === item.key}
+                    onClick={() => setActivePage(item.key)}
                     tooltip={item.label}
                     className={
-                      activePage === item.page
-                        ? 'bg-primary/10 text-primary font-medium hover:bg-primary/15 hover:text-primary'
-                        : ''
+                      activePage === item.key
+                        ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 hover:text-emerald-800 font-medium'
+                        : 'hover:bg-emerald-50/50 hover:text-emerald-700'
                     }
                   >
-                    <item.icon
-                      className={
-                        activePage === item.page
-                          ? 'text-primary'
-                          : 'text-muted-foreground'
-                      }
-                    />
+                    <item.icon className="size-4" />
                     <span>{item.label}</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
@@ -198,110 +156,59 @@ export function AppSidebar() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
-
-        {commItems.length > 0 && (
-          <SidebarGroup>
-            <SidebarGroupLabel className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
-              Comunicação
-            </SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {commItems.map((item) => (
-                  <SidebarMenuItem key={item.page}>
-                    <SidebarMenuButton
-                      isActive={activePage === item.page}
-                      onClick={() => setActivePage(item.page as never)}
-                      tooltip={item.label}
-                      className={
-                        activePage === item.page
-                          ? 'bg-primary/10 text-primary font-medium hover:bg-primary/15 hover:text-primary'
-                          : ''
-                      }
-                    >
-                      <item.icon
-                        className={
-                          activePage === item.page
-                            ? 'text-primary'
-                            : 'text-muted-foreground'
-                        }
-                      />
-                      <span>{item.label}</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        )}
-
-        {settingsItems.length > 0 && (
-          <SidebarGroup>
-            <SidebarGroupLabel className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
-              Sistema
-            </SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {settingsItems.map((item) => (
-                  <SidebarMenuItem key={item.page}>
-                    <SidebarMenuButton
-                      isActive={activePage === item.page}
-                      onClick={() => setActivePage(item.page as never)}
-                      tooltip={item.label}
-                      className={
-                        activePage === item.page
-                          ? 'bg-primary/10 text-primary font-medium hover:bg-primary/15 hover:text-primary'
-                          : ''
-                      }
-                    >
-                      <item.icon
-                        className={
-                          activePage === item.page
-                            ? 'text-primary'
-                            : 'text-muted-foreground'
-                        }
-                      />
-                      <span>{item.label}</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        )}
       </SidebarContent>
 
+      {/* Footer: user info + logout */}
       <SidebarFooter>
         <SidebarSeparator />
-        <div className="flex items-center gap-3 px-2 py-1">
-          <Avatar className="h-9 w-9 border border-border">
-            <AvatarFallback className="bg-primary/10 text-primary text-sm font-semibold">
-              {initials}
-            </AvatarFallback>
-          </Avatar>
-          <div className="flex-1 min-w-0 group-data-[collapsible=icon]:hidden">
-            <p className="text-sm font-medium truncate leading-tight">
-              {user.name}
-            </p>
-            <Badge
-              variant="outline"
-              className={`mt-1 text-[10px] px-1.5 py-0 h-4 font-medium ${roleColors[user.role] || ''}`}
+        <div className="p-2 group-data-[collapsible=icon]:flex group-data-[collapsible=icon]:justify-center">
+          <div className="flex items-center gap-3 group-data-[collapsible=icon]:hidden">
+            <Avatar className="h-8 w-8 border-2 border-emerald-200 shrink-0">
+              <AvatarFallback className="bg-emerald-100 text-emerald-700 text-xs font-semibold">
+                {initials}
+              </AvatarFallback>
+            </Avatar>
+            <div className="flex flex-col flex-1 min-w-0">
+              <span className="text-sm font-medium truncate">{user?.name || 'Usuário'}</span>
+              <div className="flex items-center gap-1 mt-0.5">
+                {badge && (
+                  <Badge
+                    variant="outline"
+                    className={`text-[10px] px-1.5 py-0 h-4 ${badge.color}`}
+                  >
+                    {badge.label}
+                  </Badge>
+                )}
+              </div>
+            </div>
+            <button
+              onClick={logout}
+              className="shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-red-50 hover:text-red-600 transition-colors"
+              title="Sair"
             >
-              {roleLabels[user.role] || user.role}
-            </Badge>
+              <LogOut className="size-4" />
+            </button>
           </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 text-muted-foreground hover:text-destructive shrink-0 group-data-[collapsible=icon]:hidden"
-            onClick={logout}
-            title="Sair"
-          >
-            <LogOut className="h-4 w-4" />
-          </Button>
+
+          {/* Collapsed: just avatar */}
+          <div className="hidden group-data-[collapsible=icon]:flex flex-col items-center gap-2">
+            <Avatar className="h-7 w-7 border-2 border-emerald-200">
+              <AvatarFallback className="bg-emerald-100 text-emerald-700 text-[10px] font-semibold">
+                {initials}
+              </AvatarFallback>
+            </Avatar>
+            <button
+              onClick={logout}
+              className="rounded-md p-1 text-muted-foreground hover:bg-red-50 hover:text-red-600 transition-colors"
+              title="Sair"
+            >
+              <LogOut className="size-3.5" />
+            </button>
+          </div>
         </div>
       </SidebarFooter>
 
       <SidebarRail />
     </Sidebar>
-  )
+  );
 }
