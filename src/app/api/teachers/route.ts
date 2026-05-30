@@ -1,49 +1,93 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { getUserFromRequest, hashPassword, createToken } from '@/lib/auth';
 
-type Row = Record<string, unknown>;
-
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const teachers = await db.teacher.findMany({ orderBy: { name: 'asc' } });
+    const user = await getUserFromRequest(request);
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
 
-    // Fetch available slots and blocked periods for each teacher
-    const teacherIds = (teachers as Row[]).map(t => t['id'] as string);
-    const [availableSlots, blockedPeriods] = await Promise.all([
-      teacherIds.length ? db.availableSlot.findMany({ where: { teacher_id: { in: teacherIds } } }) : [],
-      teacherIds.length ? db.blockedPeriod.findMany({ where: { teacher_id: { in: teacherIds } } }) : [],
-    ]);
-
-    // After toCamel, nested objects also have camelCase keys
-    return NextResponse.json({
-      teachers: (teachers as Row[]).map(t => ({
-        ...t,
-        availableSlots: (availableSlots as Row[]).filter(s => s['teacherId'] === t['id']),
-        blockedPeriods: (blockedPeriods as Row[]).filter(p => p['teacherId'] === t['id']),
-      })),
+    const teachers = await db.teacher.findMany({
+      include: {
+        user: true,
+        availability: true,
+        classes: {
+          include: {
+            classStudents: {
+              include: {
+                student: {
+                  include: { user: true },
+                },
+              },
+            },
+          },
+        },
+      },
+      orderBy: { user: { name: 'asc' } },
     });
+
+    return NextResponse.json(teachers);
   } catch (error) {
-    console.error('Error fetching teachers:', error);
-    return NextResponse.json({ error: 'Erro ao buscar professores' }, { status: 500 });
+    console.error('List teachers error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { name, email, subjects, bio, userId } = body;
-
-    if (!name || !email) {
-      return NextResponse.json({ error: 'Nome e email são obrigatórios' }, { status: 400 });
+    const user = await getUserFromRequest(request);
+    if (!user || user.role !== 'coordinator') {
+      return NextResponse.json({ error: 'Only coordinators can create teachers' }, { status: 403 });
     }
 
-    const teacher = await db.teacher.create({
-      data: { name, email, subjects: subjects || '', bio: bio || '', user_id: userId || null },
+    const body = await request.json();
+    const { name, email, password, phone, subjects, bio } = body;
+
+    if (!name || !email || !password) {
+      return NextResponse.json({ error: 'Name, email, and password are required' }, { status: 400 });
+    }
+
+    const existingUser = await db.user.findUnique({ where: { email } });
+    if (existingUser) {
+      return NextResponse.json({ error: 'Email already in use' }, { status: 409 });
+    }
+
+    const hashedPassword = await hashPassword(password);
+
+    const newUser = await db.user.create({
+      data: {
+        name,
+        email,
+        phone: phone || '',
+        password: hashedPassword,
+        role: 'teacher',
+      },
     });
 
-    return NextResponse.json({ teacher }, { status: 201 });
+    const teacher = await db.teacher.create({
+      data: {
+        userId: newUser.id,
+        subjects: subjects || '',
+        bio: bio || '',
+      },
+      include: {
+        user: true,
+        availability: true,
+        classes: true,
+      },
+    });
+
+    const token = await createToken({
+      userId: newUser.id,
+      email: newUser.email,
+      role: newUser.role,
+    });
+
+    return NextResponse.json({ teacher, token }, { status: 201 });
   } catch (error) {
-    console.error('Error creating teacher:', error);
-    return NextResponse.json({ error: 'Erro ao criar professor' }, { status: 500 });
+    console.error('Create teacher error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

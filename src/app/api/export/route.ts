@@ -1,85 +1,157 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { addDays, format, parse, startOfWeek, getDay } from 'date-fns';
+import { getUserFromRequest } from '@/lib/auth';
 
-type Row = Record<string, unknown>;
+function escapeCSV(value: string): string {
+  if (value.includes(',') || value.includes('"') || value.includes('\n')) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  return value;
+}
 
 export async function GET(request: NextRequest) {
   try {
+    const user = await getUserFromRequest(request);
+    if (!user || user.role !== 'coordinator') {
+      return NextResponse.json({ error: 'Only coordinators can export data' }, { status: 403 });
+    }
+
     const { searchParams } = new URL(request.url);
-    const formatType = searchParams.get('format') || 'csv';
-    const teacherId = searchParams.get('teacherId');
-    const weekStartStr = searchParams.get('weekStart');
-    const month = searchParams.get('month');
+    const type = searchParams.get('type');
 
-    const dates: string[] = [];
-    if (weekStartStr) {
-      const ws = parse(weekStartStr, 'yyyy-MM-dd', new Date());
-      for (let i = 0; i < 7; i++) dates.push(format(addDays(ws, i), 'yyyy-MM-dd'));
-    } else if (month) {
-      const ms = parse(`${month}-01`, 'yyyy-MM-dd', new Date());
-      const days = new Date(ms.getFullYear(), ms.getMonth() + 1, 0).getDate();
-      for (let i = 1; i <= days; i++) dates.push(format(new Date(ms.getFullYear(), ms.getMonth(), i), 'yyyy-MM-dd'));
-    } else {
-      const ws = startOfWeek(new Date(), { weekStartsOn: 1 });
-      for (let i = 0; i < 7; i++) dates.push(format(addDays(ws, i), 'yyyy-MM-dd'));
+    if (!type) {
+      return NextResponse.json({ error: 'type query param is required' }, { status: 400 });
     }
 
-    const where: Row = { date: { in: dates } };
-    if (teacherId) where['teacher_id'] = teacherId;
+    let csvContent = '';
+    let filename = '';
 
-    const [bookings, availableSlots, blockedSlots, nonClassDays, holidays] = await Promise.all([
-      db.booking.findMany({ where, orderBy: [{ date: 'asc' }, { start_time: 'asc' }] }),
-      db.availableSlot.findMany({ where: teacherId ? { teacher_id: teacherId } : {} }),
-      db.blockedSlot.findMany({ where: teacherId ? { teacher_id: teacherId, date: { in: dates } } : { date: { in: dates } } }),
-      db.nonClassDay.findMany({ where: { date: { in: dates } } }),
-      db.holiday.findMany({ where: { date: { in: dates } } }),
-    ]);
+    switch (type) {
+      case 'appointments': {
+        const appointments = await db.appointment.findMany({
+          include: {
+            class: true,
+            teacher: { include: { user: true } },
+            student: { include: { user: true } },
+          },
+          orderBy: [{ date: 'asc' }, { startTime: 'asc' }],
+        });
 
-    // After toCamel, fields are camelCase
-    const tIds = [...new Set([
-      ...(bookings as Row[]).map(b => b['teacherId'] as string),
-      ...(availableSlots as Row[]).map(s => s['teacherId'] as string),
-    ])];
-    const teachers = tIds.length ? await db.teacher.findMany({ where: { id: { in: tIds } } }) : [];
-    const tMap = new Map((teachers as Row[]).map(t => [t['id'] as string, t['name'] as string]));
+        const headers = ['ID', 'Date', 'Start Time', 'End Time', 'Status', 'Class', 'Subject', 'Teacher', 'Student', 'Notes'];
+        const rows = appointments.map((a) => [
+          a.id,
+          a.date,
+          a.startTime,
+          a.endTime,
+          a.status,
+          a.class.name,
+          a.class.subject,
+          a.teacher.user.name,
+          a.student?.user?.name || '',
+          a.notes,
+        ].map(escapeCSV).join(','));
 
-    const dayNames = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
-
-    if (formatType === 'csv') {
-      const bookedKeys = new Set((bookings as Row[]).map(b => `${b['date']}-${b['startTime']}-${b['teacherId']}`));
-      const blockedKeys = new Set((blockedSlots as Row[]).map(b => `${b['date']}-${b['startTime']}-${b['teacherId']}`));
-      const nonClassSet = new Set((nonClassDays as Row[]).map(n => n['date'] as string));
-      const holidaySet = new Set((holidays as Row[]).map(h => h['date'] as string));
-
-      const rows: string[] = [];
-      for (const b of bookings as Row[]) {
-        const d = new Date((b['date'] as string) + 'T12:00:00');
-        rows.push(`${b['date']},${dayNames[d.getDay()]},${b['startTime']}-${b['endTime']},${tMap.get(b['teacherId'] as string) || ''},${b['studentName']},Agendado`);
-      }
-      for (const date of dates) {
-        const d = new Date(date + 'T12:00:00');
-        const dow = getDay(d);
-        const dayName = dayNames[dow];
-        const isNCD = nonClassSet.has(date);
-        const isHol = holidaySet.has(date);
-        for (const slot of (availableSlots as Row[]).filter(s => s['dayOfWeek'] === dow)) {
-          const key = `${date}-${slot['startTime']}-${slot['teacherId']}`;
-          if (bookedKeys.has(key)) continue;
-          const tName = tMap.get(slot['teacherId'] as string) || '';
-          if (isNCD || isHol) rows.push(`${date},${dayName},${slot['startTime']}-${slot['endTime']},${tName},,Dia sem aula`);
-          else if (blockedKeys.has(key)) rows.push(`${date},${dayName},${slot['startTime']}-${slot['endTime']},${tName},,Bloqueado`);
-          else rows.push(`${date},${dayName},${slot['startTime']}-${slot['endTime']},${tName},,Disponível`);
-        }
+        csvContent = [headers.join(','), ...rows].join('\n');
+        filename = 'appointments.csv';
+        break;
       }
 
-      const csv = ['Data,Dia,Horário,Professor,Aluno,Status', ...rows].join('\n');
-      return new NextResponse(csv, { headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename=horivoo-agenda.csv' } });
+      case 'students': {
+        const students = await db.student.findMany({
+          include: {
+            user: true,
+            classStudents: { include: { class: true } },
+          },
+          orderBy: { user: { name: 'asc' } },
+        });
+
+        const headers = ['ID', 'Name', 'Email', 'Phone', 'Responsible Name', 'Notes', 'Classes'];
+        const rows = students.map((s) => [
+          s.id,
+          s.user.name,
+          s.user.email,
+          s.user.phone,
+          s.responsibleName,
+          s.notes,
+          s.classStudents.map((cs) => cs.class.name).join('; '),
+        ].map(escapeCSV).join(','));
+
+        csvContent = [headers.join(','), ...rows].join('\n');
+        filename = 'students.csv';
+        break;
+      }
+
+      case 'teachers': {
+        const teachers = await db.teacher.findMany({
+          include: {
+            user: true,
+            classes: true,
+          },
+          orderBy: { user: { name: 'asc' } },
+        });
+
+        const headers = ['ID', 'Name', 'Email', 'Phone', 'Subjects', 'Bio', 'Classes'];
+        const rows = teachers.map((t) => [
+          t.id,
+          t.user.name,
+          t.user.email,
+          t.user.phone,
+          t.subjects,
+          t.bio,
+          t.classes.map((c) => c.name).join('; '),
+        ].map(escapeCSV).join(','));
+
+        csvContent = [headers.join(','), ...rows].join('\n');
+        filename = 'teachers.csv';
+        break;
+      }
+
+      case 'attendance': {
+        const attendance = await db.attendance.findMany({
+          include: {
+            student: { include: { user: true } },
+            appointment: {
+              include: {
+                class: true,
+                teacher: { include: { user: true } },
+              },
+            },
+          },
+          orderBy: { appointment: { date: 'desc' } },
+        });
+
+        const headers = ['ID', 'Student', 'Date', 'Start Time', 'Class', 'Teacher', 'Status'];
+        const rows = attendance.map((a) => [
+          a.id,
+          a.student.user.name,
+          a.appointment.date,
+          a.appointment.startTime,
+          a.appointment.class.name,
+          a.appointment.teacher.user.name,
+          a.status,
+        ].map(escapeCSV).join(','));
+
+        csvContent = [headers.join(','), ...rows].join('\n');
+        filename = 'attendance.csv';
+        break;
+      }
+
+      default:
+        return NextResponse.json(
+          { error: 'Invalid type. Use: appointments, students, teachers, attendance' },
+          { status: 400 }
+        );
     }
 
-    return NextResponse.json({ error: 'Formato não suportado' }, { status: 400 });
+    return new NextResponse(csvContent, {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': `attachment; filename="${filename}"`,
+      },
+    });
   } catch (error) {
-    console.error(error);
-    return NextResponse.json({ error: 'Erro ao exportar' }, { status: 500 });
+    console.error('Export error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

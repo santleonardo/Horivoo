@@ -1,100 +1,91 @@
-/**
- * /api/messages/route.ts
- * GET  → lista mensagens do usuário logado (inbox + sent)
- * POST → envia nova mensagem
- */
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { verifyToken } from '@/lib/auth';
+import { getUserFromRequest } from '@/lib/auth';
 
-type MsgRow = Record<string, unknown>;
-
-async function getUser(req: NextRequest) {
-  const auth = req.headers.get('Authorization') || '';
-  const token = auth.replace('Bearer ', '');
-  if (!token) return null;
-  return verifyToken(token);
-}
-
-export async function GET(req: NextRequest) {
-  const user = await getUser(req);
-  if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
-
-  const { searchParams } = new URL(req.url);
-  const box = searchParams.get('box') || 'inbox'; // inbox | sent
-
+export async function GET(request: NextRequest) {
   try {
-    const where = box === 'sent'
-      ? { sender_id: user.userId }
-      : { receiver_id: user.userId };
+    const user = await getUserFromRequest(request);
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
 
-    const msgs = await db.message.findMany({
+    const { searchParams } = new URL(request.url);
+    const box = searchParams.get('box') || 'inbox';
+
+    let where: Record<string, unknown>;
+    if (box === 'sent') {
+      where = { senderId: user.userId };
+    } else {
+      where = { receiverId: user.userId };
+    }
+
+    const messages = await db.message.findMany({
       where,
-      orderBy: [{ created_at: 'desc' }],
-    }) as MsgRow[];
-
-    // Enrich with user names
-    const userIds = new Set<string>();
-    msgs.forEach(m => {
-      if (m.senderId)   userIds.add(m.senderId as string);
-      if (m.receiverId) userIds.add(m.receiverId as string);
+      include: {
+        sender: {
+          select: { id: true, name: true, email: true, role: true },
+        },
+        receiver: {
+          select: { id: true, name: true, email: true, role: true },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
     });
 
-    const users = await db.user.findMany({
-      where: { id: { in: Array.from(userIds) } },
-    }) as MsgRow[];
-
-    const userMap = Object.fromEntries(users.map(u => [u.id, u]));
-
-    const enriched = msgs.map(m => ({
-      ...m,
-      sender:   userMap[m.senderId as string]   || { name: 'Desconhecido' },
-      receiver: userMap[m.receiverId as string] || { name: 'Desconhecido' },
-    }));
-
-    // Count unread in inbox
-    const unread = box === 'inbox'
-      ? enriched.filter(m => !(m as MsgRow)['read']).length
-      : 0;
-
-    return NextResponse.json({ messages: enriched, unread });
+    return NextResponse.json(messages);
   } catch (error) {
-    console.error('[messages GET]', error);
-    return NextResponse.json({ error: 'Erro interno' }, { status: 500 });
+    console.error('List messages error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
 
-export async function POST(req: NextRequest) {
-  const user = await getUser(req);
-  if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
-
+export async function POST(request: NextRequest) {
   try {
-    const body = await req.json() as Record<string, string>;
-    const { receiver_id, subject, body: msgBody } = body;
-
-    if (!receiver_id || !msgBody?.trim()) {
-      return NextResponse.json({ error: 'Destinatário e mensagem são obrigatórios' }, { status: 400 });
+    const user = await getUserFromRequest(request);
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Verify receiver exists
-    const receiver = await db.user.findUnique({ where: { id: receiver_id } });
+    const body = await request.json();
+    const { receiverId, subject, body: messageBody } = body;
+
+    if (!receiverId || !messageBody) {
+      return NextResponse.json(
+        { error: 'receiverId and body are required' },
+        { status: 400 }
+      );
+    }
+
+    const receiver = await db.user.findUnique({ where: { id: receiverId } });
     if (!receiver) {
-      return NextResponse.json({ error: 'Destinatário não encontrado' }, { status: 404 });
+      return NextResponse.json({ error: 'Receiver not found' }, { status: 404 });
     }
 
-    const msg = await db.message.create({
+    const message = await db.message.create({
       data: {
-        sender_id:   user.userId,
-        receiver_id,
-        subject:     subject || '',
-        body:        msgBody.trim(),
-        read:        false,
+        sender: { connect: { id: user.userId } },
+        receiver: { connect: { id: receiverId } },
+        subject: subject || '',
+        body: messageBody,
       },
     });
 
-    return NextResponse.json({ message: msg }, { status: 201 });
+    // Fetch with relations
+    const fullMessage = await db.message.findUnique({
+      where: { id: message.id },
+      include: {
+        sender: {
+          select: { id: true, name: true, email: true, role: true },
+        },
+        receiver: {
+          select: { id: true, name: true, email: true, role: true },
+        },
+      },
+    });
+
+    return NextResponse.json(fullMessage, { status: 201 });
   } catch (error) {
-    console.error('[messages POST]', error);
-    return NextResponse.json({ error: 'Erro interno' }, { status: 500 });
+    console.error('Send message error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

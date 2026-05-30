@@ -10,21 +10,22 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url);
-    const year = searchParams.get('year');
+    const classId = searchParams.get('classId');
 
     const where: Record<string, unknown> = {};
-    if (year) {
-      where.date = { startsWith: year };
-    }
+    if (classId) where.classId = classId;
 
-    const holidays = await db.holiday.findMany({
+    const tests = await db.test.findMany({
       where,
+      include: {
+        class: true,
+      },
       orderBy: { date: 'asc' },
     });
 
-    return NextResponse.json(holidays);
+    return NextResponse.json(tests);
   } catch (error) {
-    console.error('List holidays error:', error);
+    console.error('List tests error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
@@ -33,34 +34,32 @@ export async function POST(request: NextRequest) {
   try {
     const user = await getUserFromRequest(request);
     if (!user || user.role !== 'coordinator') {
-      return NextResponse.json({ error: 'Only coordinators can create holidays' }, { status: 403 });
+      return NextResponse.json({ error: 'Only coordinators can create tests' }, { status: 403 });
     }
 
     const body = await request.json();
-    const { name, date } = body;
+    const { classId, title, date } = body;
 
-    if (!name || !date) {
+    if (!classId || !title || !date) {
       return NextResponse.json(
-        { error: 'Name and date are required' },
+        { error: 'classId, title, and date are required' },
         { status: 400 }
       );
     }
 
-    const existingHoliday = await db.holiday.findUnique({ where: { date } });
-    if (existingHoliday) {
-      return NextResponse.json(
-        { error: 'A holiday already exists on this date' },
-        { status: 409 }
-      );
+    const cls = await db.class.findUnique({ where: { id: classId } });
+    if (!cls) {
+      return NextResponse.json({ error: 'Class not found' }, { status: 404 });
     }
 
-    const holiday = await db.holiday.create({
-      data: { name, date },
+    const test = await db.test.create({
+      data: { classId, title, date },
+      include: { class: true },
     });
 
-    return NextResponse.json(holiday, { status: 201 });
+    return NextResponse.json(test, { status: 201 });
   } catch (error) {
-    console.error('Create holiday error:', error);
+    console.error('Create test error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

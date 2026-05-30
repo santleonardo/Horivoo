@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import { Toaster } from "@/components/ui/sonner";
+import { Toaster } from "sonner";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -14,11 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Horivoo — Sistema de Agenda Escolar",
-  description: "Sistema de agenda semanal para professores, alunos e coordenadores",
-  icons: {
-    icon: "/logo.svg",
-  },
+  title: "Horivoo - Sistema Acadêmico",
+  description: "Sistema de agendamento e gestão acadêmica",
 };
 
 export default function RootLayout({
@@ -32,7 +29,7 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
       >
         {children}
-        <Toaster position="top-right" richColors />
+        <Toaster richColors position="top-right" />
       </body>
     </html>
   );

@@ -1,60 +1,73 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { verifyPassword, hashPassword, createToken } from '@/lib/auth';
-
-interface AuthUser {
-  id: string;
-  email: string;
-  name: string;
-  password: string;
-  role: string;
-}
-
-interface AuthTeacher {
-  id: string;
-  user_id: string;
-  name: string;
-  email: string;
-}
+import { hashPassword, verifyPassword, createToken } from '@/lib/auth';
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { email, password, name, role, action } = body as Record<string, string>;
+    const { action } = body;
 
-    // ── Signup ─────────────────────────────────────────────
     if (action === 'signup') {
-      if (!email || !password || !name || !role) {
-        return NextResponse.json({ error: 'Preencha todos os campos' }, { status: 400 });
-      }
-      if (!['teacher', 'coordinator', 'student'].includes(role)) {
-        return NextResponse.json({ error: 'Perfil inválido' }, { status: 400 });
-      }
+      const { name, email, password, role, subjects, bio, responsibleName, notes, phone } = body;
 
-      const existing = await db.user.findUnique({ where: { email } });
-      if (existing) {
-        return NextResponse.json({ error: 'Email já cadastrado' }, { status: 400 });
+      if (!name || !password || !role) {
+        return NextResponse.json(
+          { error: 'Name, password, and role are required' },
+          { status: 400 }
+        );
       }
 
-      const hashedPassword = hashPassword(password);
-      const user = (await db.user.create({
-        data: { email, name, password: hashedPassword, role },
-      })) as unknown as AuthUser;
+      const existingUser = await db.user.findUnique({ where: { email: email || '' } });
+      if (existingUser) {
+        return NextResponse.json(
+          { error: 'Email already in use' },
+          { status: 409 }
+        );
+      }
 
-      let teacherId: string | undefined;
+      const hashedPassword = await hashPassword(password);
+      const userEmail = email || (role === 'student' ? `student_${Date.now()}@horivoo.local` : '');
+
+      if (!userEmail) {
+        return NextResponse.json(
+          { error: 'Email is required for this role' },
+          { status: 400 }
+        );
+      }
+
+      const user = await db.user.create({
+        data: {
+          name,
+          email: userEmail,
+          phone: phone || '',
+          password: hashedPassword,
+          role,
+        },
+      });
+
+      let teacherId: string | null = null;
+      let studentId: string | null = null;
 
       if (role === 'teacher') {
-        const teacher = (await db.teacher.create({
-          data: { user_id: user.id, name, email },
-        })) as unknown as AuthTeacher;
-        teacherId = teacher.id;
-      }
-
-      if (role === 'coordinator') {
-        await db.coordinator.create({
-          data: { user_id: user.id, name, email },
+        const teacher = await db.teacher.create({
+          data: {
+            userId: user.id,
+            subjects: subjects || '',
+            bio: bio || '',
+          },
         });
+        teacherId = teacher.id;
+      } else if (role === 'student') {
+        const student = await db.student.create({
+          data: {
+            userId: user.id,
+            responsibleName: responsibleName || '',
+            notes: notes || '',
+          },
+        });
+        studentId = student.id;
       }
+      // Coordinator: only user, no separate profile
 
       const token = await createToken({
         userId: user.id,
@@ -63,33 +76,39 @@ export async function POST(request: NextRequest) {
       });
 
       return NextResponse.json({
+        token,
         user: {
           id: user.id,
-          email: user.email,
           name: user.name,
+          email: user.email,
+          phone: user.phone,
           role: user.role,
-          ...(teacherId && { teacherId }),
+          teacherId,
+          studentId,
         },
-        token,
-      }, { status: 201 });
+      });
     }
 
-    // ── Login ───────────────────────────────────────────────
+    // Login
+    const { email, password } = body;
     if (!email || !password) {
-      return NextResponse.json({ error: 'Email e senha são obrigatórios' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'Email and password are required' },
+        { status: 400 }
+      );
     }
 
-    const user = (await db.user.findUnique({ where: { email } })) as unknown as AuthUser | null;
-    if (!user) {
-      return NextResponse.json({ error: 'Usuário não encontrado' }, { status: 404 });
-    }
+    const user = await db.user.findUnique({
+      where: { email },
+      include: { teacher: true, student: true },
+    });
 
-    const valid = verifyPassword(password, user.password);
-    if (!valid) {
-      return NextResponse.json({ error: 'Senha incorreta' }, { status: 401 });
+    if (!user || !(await verifyPassword(password, user.password))) {
+      return NextResponse.json(
+        { error: 'Invalid email or password' },
+        { status: 401 }
+      );
     }
-
-    const teacher = (await db.teacher.findUnique({ where: { user_id: user.id } })) as unknown as AuthTeacher | null;
 
     const token = await createToken({
       userId: user.id,
@@ -98,17 +117,22 @@ export async function POST(request: NextRequest) {
     });
 
     return NextResponse.json({
+      token,
       user: {
         id: user.id,
-        email: user.email,
         name: user.name,
+        email: user.email,
+        phone: user.phone,
         role: user.role,
-        teacherId: teacher?.id,
+        teacherId: user.teacher?.id || null,
+        studentId: user.student?.id || null,
       },
-      token,
     });
   } catch (error) {
     console.error('Auth error:', error);
-    return NextResponse.json({ error: 'Erro interno do servidor' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
   }
 }
