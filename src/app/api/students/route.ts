@@ -4,7 +4,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { getUserFromRequest } from '@/lib/auth';
+import { getUserFromRequest, requireRole } from '@/lib/auth';
 
 export async function GET(request: NextRequest) {
   try {
@@ -23,6 +23,10 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  // Apenas coordenadores podem criar alunos
+  const authResult = await requireRole(request, 'coordinator');
+  if (authResult instanceof NextResponse) return authResult;
+
   try {
     const body = await request.json();
     const { name, phone, responsibleName, email, notes, userId } = body;
