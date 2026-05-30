@@ -1,185 +1,135 @@
-'use client'
-
-import { create } from 'zustand'
-
-// Types
-type Role = 'coordinator' | 'teacher' | 'student'
+import { create } from 'zustand';
 
 interface AuthUser {
-  id: string
-  email: string
-  name: string
-  role: Role
-  phone: string
-  teacherId?: string
-  studentId?: string
-  token: string
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+  token: string;
+  teacherId?: string;
 }
 
-type PageKey =
-  // Coordinator pages
+/**
+ * Todas as chaves de página do sistema.
+ * Coordenador: dashboard, professores, alunos, agenda, calendario, feriados,
+ *              recessos, agendamentos, reposicoes, relatorios, exportar,
+ *              configuracoes, mensagens
+ * Professor:   minha-agenda, disponibilidade, calendario, mensagens, perfil
+ * Aluno:       calendario, minhas-aulas, mensagens, perfil
+ */
+export type PageKey =
+  // Coordenador
   | 'dashboard'
-  | 'agenda'
   | 'professores'
   | 'alunos'
-  | 'turmas'
-  | 'provas'
-  | 'reposicoes'
+  | 'agenda'
   | 'calendario'
   | 'feriados'
   | 'recessos'
-  | 'mensagens'
+  | 'agendamentos'
+  | 'reposicoes'
   | 'relatorios'
   | 'exportar'
   | 'configuracoes'
-  // Teacher pages
+  // Compartilhadas / mensagens
+  | 'mensagens'
+  // Professor
   | 'minha-agenda'
   | 'disponibilidade'
-  // Student pages
+  // Aluno
   | 'minhas-aulas'
-  // Shared
-  | 'perfil'
+  // Todos
+  | 'perfil';
 
-// LocalStorage keys
-const TOKEN_KEY = 'horivoo_token'
-const USER_KEY = 'horivoo_user'
+/** Página inicial por papel */
+const defaultPage: Record<string, PageKey> = {
+  coordinator: 'dashboard',
+  teacher:     'minha-agenda',
+  student:     'minhas-aulas',
+};
 
-interface AppStore {
-  user: AuthUser | null
-  loading: boolean
-  activePage: PageKey
-  login: (email: string, password: string) => Promise<void>
-  logout: () => void
-  checkAuth: () => Promise<void>
-  setActivePage: (page: PageKey) => void
-  authFetch: (url: string, options?: RequestInit) => Promise<Response>
+interface AuthStore {
+  user: AuthUser | null;
+  loading: boolean;
+  activePage: PageKey;
+  login:     (email: string, password: string) => Promise<void>;
+  signup:    (email: string, password: string, name: string, role: string) => Promise<void>;
+  logout:    () => void;
+  checkAuth: () => Promise<void>;
+  setActivePage: (page: PageKey) => void;
 }
 
-export const useAppStore = create<AppStore>((set, get) => ({
+export const useAuthStore = create<AuthStore>((set) => ({
   user: null,
   loading: true,
   activePage: 'dashboard',
 
-  login: async (email: string, password: string) => {
-    set({ loading: true })
-    try {
-      const res = await fetch('/api/auth', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-      })
-
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({ message: 'Login failed' }))
-        throw new Error(errorData.message || 'Login failed')
-      }
-
-      const data = await res.json()
-      const user: AuthUser = {
-        id: data.user.id,
-        email: data.user.email,
-        name: data.user.name,
-        role: data.user.role,
-        phone: data.user.phone,
-        teacherId: data.user.teacherId,
-        studentId: data.user.studentId,
-        token: data.token,
-      }
-
-      localStorage.setItem(TOKEN_KEY, data.token)
-      localStorage.setItem(USER_KEY, JSON.stringify(user))
-
-      // Set default page based on role
-      let defaultPage: PageKey = 'dashboard'
-      if (user.role === 'teacher') defaultPage = 'minha-agenda'
-      if (user.role === 'student') defaultPage = 'minhas-aulas'
-
-      set({ user, loading: false, activePage: defaultPage })
-    } catch (error) {
-      set({ loading: false })
-      throw error
+  login: async (email, password) => {
+    const res = await fetch('/api/auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Erro ao fazer login');
     }
+    const data = await res.json();
+    localStorage.setItem('horivoo_token', data.token);
+    localStorage.setItem('horivoo_user', JSON.stringify(data.user));
+    const startPage: PageKey = defaultPage[data.user.role] ?? 'dashboard';
+    set({ user: { ...data.user, token: data.token }, activePage: startPage });
+  },
+
+  signup: async (email, password, name, role) => {
+    const res = await fetch('/api/auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password, name, role, action: 'signup' }),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Erro ao criar conta');
+    }
+    const data = await res.json();
+    localStorage.setItem('horivoo_token', data.token);
+    localStorage.setItem('horivoo_user', JSON.stringify(data.user));
+    const startPage: PageKey = defaultPage[data.user.role] ?? 'dashboard';
+    set({ user: { ...data.user, token: data.token }, activePage: startPage });
   },
 
   logout: () => {
-    localStorage.removeItem(TOKEN_KEY)
-    localStorage.removeItem(USER_KEY)
-    set({ user: null, loading: false, activePage: 'dashboard' })
+    localStorage.removeItem('horivoo_token');
+    localStorage.removeItem('horivoo_user');
+    set({ user: null, activePage: 'dashboard' });
   },
 
   checkAuth: async () => {
-    const token = localStorage.getItem(TOKEN_KEY)
-    if (!token) {
-      set({ user: null, loading: false })
-      return
+    const token   = localStorage.getItem('horivoo_token');
+    const userStr = localStorage.getItem('horivoo_user');
+    if (token && userStr) {
+      try {
+        const user      = JSON.parse(userStr) as AuthUser;
+        const startPage: PageKey = defaultPage[user.role] ?? 'dashboard';
+        set({ user: { ...user, token }, loading: false, activePage: startPage });
+        return;
+      } catch { /* ignore */ }
     }
-
-    try {
-      const res = await fetch('/api/auth/me', {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      })
-
-      if (!res.ok) {
-        localStorage.removeItem(TOKEN_KEY)
-        localStorage.removeItem(USER_KEY)
-        set({ user: null, loading: false })
-        return
-      }
-
-      const data = await res.json()
-      const user: AuthUser = {
-        id: data.user.id,
-        email: data.user.email,
-        name: data.user.name,
-        role: data.user.role,
-        phone: data.user.phone,
-        teacherId: data.user.teacherId,
-        studentId: data.user.studentId,
-        token,
-      }
-
-      localStorage.setItem(USER_KEY, JSON.stringify(user))
-
-      // Restore active page or set default based on role
-      let defaultPage: PageKey = 'dashboard'
-      if (user.role === 'teacher') defaultPage = 'minha-agenda'
-      if (user.role === 'student') defaultPage = 'minhas-aulas'
-
-      const currentState = get()
-      set({
-        user,
-        loading: false,
-        activePage: currentState.activePage || defaultPage,
-      })
-    } catch {
-      localStorage.removeItem(TOKEN_KEY)
-      localStorage.removeItem(USER_KEY)
-      set({ user: null, loading: false })
-    }
+    set({ loading: false });
   },
 
-  setActivePage: (page: PageKey) => {
-    set({ activePage: page })
-  },
+  setActivePage: (page) => set({ activePage: page }),
+}));
 
-  authFetch: async (url: string, options?: RequestInit) => {
-    const { user } = get()
-    const token = user?.token || localStorage.getItem(TOKEN_KEY)
-
-    const headers = new Headers(options?.headers)
-    if (token) {
-      headers.set('Authorization', `Bearer ${token}`)
-    }
-    if (!headers.has('Content-Type') && options?.body && typeof options.body === 'string') {
-      headers.set('Content-Type', 'application/json')
-    }
-
-    return fetch(url, {
-      ...options,
-      headers,
-    })
-  },
-}))
+/** Helper para requisições autenticadas */
+export function authFetch(url: string, options: RequestInit = {}, token?: string) {
+  const t = token || (typeof window !== 'undefined' ? localStorage.getItem('horivoo_token') : null);
+  return fetch(url, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers,
+      ...(t ? { Authorization: `Bearer ${t}` } : {}),
+    },
+  });
+}
