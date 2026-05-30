@@ -1,18 +1,28 @@
 /**
  * /api/classes — CRUD de turmas
+ * GET: All authenticated users
+ * POST: Only coordinator
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { getUserFromRequest } from '@/lib/auth';
+import { requireRole } from '@/lib/auth';
 
 type Row = Record<string, unknown>;
 
 export async function GET(request: NextRequest) {
   try {
-    const user = await getUserFromRequest(request);
-    if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
+    const authResult = await requireRole(request, 'coordinator', 'teacher', 'student');
+    if (authResult instanceof NextResponse) return authResult;
 
-    const classes = await db.class_.findMany({ orderBy: { name: 'asc' } });
+    const where: Row = {};
+
+    // Role-based filtering: teachers only see their own classes
+    if (authResult.role === 'teacher') {
+      const teacher = await db.teacher.findUnique({ where: { user_id: authResult.userId } });
+      if (teacher) where['teacher_id'] = (teacher as Row)['id'];
+    }
+
+    const classes = await db.class_.findMany({ where, orderBy: { name: 'asc' } });
 
     // Enrich with teacher info
     const teacherIds = [...new Set((classes as Row[]).map(c => c['teacherId'] as string).filter(Boolean))];
@@ -35,12 +45,8 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const user = await getUserFromRequest(request);
-    if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
-
-    if (user.role !== 'coordinator') {
-      return NextResponse.json({ error: 'Apenas coordenadores podem criar turmas' }, { status: 403 });
-    }
+    const authResult = await requireRole(request, 'coordinator');
+    if (authResult instanceof NextResponse) return authResult;
 
     const body = await request.json() as {
       name: string;

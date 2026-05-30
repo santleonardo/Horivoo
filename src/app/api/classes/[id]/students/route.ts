@@ -1,9 +1,12 @@
 /**
  * /api/classes/[id]/students — Manage students in a class
+ * GET: All authenticated
+ * POST: Only coordinator
+ * DELETE: Only coordinator
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { getUserFromRequest } from '@/lib/auth';
+import { requireRole } from '@/lib/auth';
 
 type Row = Record<string, unknown>;
 
@@ -12,8 +15,8 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const user = await getUserFromRequest(request);
-    if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
+    const authResult = await requireRole(request, 'coordinator', 'teacher', 'student');
+    if (authResult instanceof NextResponse) return authResult;
 
     const { id } = await params;
     const classStudents = await db.classStudent.findMany({ where: { class_id: id } });
@@ -42,12 +45,8 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const user = await getUserFromRequest(request);
-    if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
-
-    if (user.role !== 'coordinator') {
-      return NextResponse.json({ error: 'Apenas coordenadores podem gerenciar turmas' }, { status: 403 });
-    }
+    const authResult = await requireRole(request, 'coordinator');
+    if (authResult instanceof NextResponse) return authResult;
 
     const { id } = await params;
     const body = await request.json() as { studentId: string };
@@ -82,12 +81,8 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const user = await getUserFromRequest(request);
-    if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
-
-    if (user.role !== 'coordinator') {
-      return NextResponse.json({ error: 'Apenas coordenadores podem gerenciar turmas' }, { status: 403 });
-    }
+    const authResult = await requireRole(request, 'coordinator');
+    if (authResult instanceof NextResponse) return authResult;
 
     const { id } = await params;
     const { searchParams } = new URL(request.url);

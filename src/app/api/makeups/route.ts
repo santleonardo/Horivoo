@@ -1,16 +1,18 @@
 /**
  * /api/makeups — CRUD de reposições de aula
+ * GET: All authenticated users
+ * POST: Only coordinator
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { getUserFromRequest } from '@/lib/auth';
+import { requireRole } from '@/lib/auth';
 
 type Row = Record<string, unknown>;
 
 export async function GET(request: NextRequest) {
   try {
-    const user = await getUserFromRequest(request);
-    if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
+    const authResult = await requireRole(request, 'coordinator', 'teacher', 'student');
+    if (authResult instanceof NextResponse) return authResult;
 
     const makeups = await db.makeUpClass.findMany({ orderBy: { new_date: 'asc' } });
 
@@ -35,12 +37,8 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const user = await getUserFromRequest(request);
-    if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
-
-    if (user.role !== 'coordinator') {
-      return NextResponse.json({ error: 'Apenas coordenadores podem criar reposições' }, { status: 403 });
-    }
+    const authResult = await requireRole(request, 'coordinator');
+    if (authResult instanceof NextResponse) return authResult;
 
     const body = await request.json() as {
       originalAppointmentId: string;

@@ -1,16 +1,18 @@
 /**
  * /api/attendance — Attendance tracking
+ * GET: All authenticated users
+ * POST: Only coordinator and teacher can register attendance
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { getUserFromRequest } from '@/lib/auth';
+import { requireRole } from '@/lib/auth';
 
 type Row = Record<string, unknown>;
 
 export async function GET(request: NextRequest) {
   try {
-    const user = await getUserFromRequest(request);
-    if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
+    const authResult = await requireRole(request, 'coordinator', 'teacher', 'student');
+    if (authResult instanceof NextResponse) return authResult;
 
     const { searchParams } = new URL(request.url);
     const appointmentId = searchParams.get('appointmentId');
@@ -30,12 +32,9 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const user = await getUserFromRequest(request);
-    if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
-
-    if (user.role === 'student') {
-      return NextResponse.json({ error: 'Alunos não podem registrar presenças' }, { status: 403 });
-    }
+    // Only coordinator and teacher can register attendance
+    const authResult = await requireRole(request, 'coordinator', 'teacher');
+    if (authResult instanceof NextResponse) return authResult;
 
     const body = await request.json() as {
       studentId: string;

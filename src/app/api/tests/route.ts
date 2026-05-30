@@ -1,16 +1,18 @@
 /**
  * /api/tests — CRUD de provas
+ * GET: All authenticated users
+ * POST: Only coordinator
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { getUserFromRequest } from '@/lib/auth';
+import { requireRole } from '@/lib/auth';
 
 type Row = Record<string, unknown>;
 
 export async function GET(request: NextRequest) {
   try {
-    const user = await getUserFromRequest(request);
-    if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
+    const authResult = await requireRole(request, 'coordinator', 'teacher', 'student');
+    if (authResult instanceof NextResponse) return authResult;
 
     const { searchParams } = new URL(request.url);
     const classId = searchParams.get('classId');
@@ -18,9 +20,9 @@ export async function GET(request: NextRequest) {
     const where: Row = {};
     if (classId) where['class_id'] = classId;
 
-    // Role-based filtering
-    if (user.role === 'teacher') {
-      const teacher = await db.teacher.findUnique({ where: { user_id: user.userId } });
+    // Role-based filtering: teachers only see tests for their own classes
+    if (authResult.role === 'teacher') {
+      const teacher = await db.teacher.findUnique({ where: { user_id: authResult.userId } });
       if (teacher) {
         const teacherClasses = await db.class_.findMany({ where: { teacher_id: (teacher as Row)['id'] } });
         const classIds = (teacherClasses as Row[]).map(c => c['id'] as string);
@@ -49,12 +51,8 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const user = await getUserFromRequest(request);
-    if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
-
-    if (user.role !== 'coordinator') {
-      return NextResponse.json({ error: 'Apenas coordenadores podem criar provas' }, { status: 403 });
-    }
+    const authResult = await requireRole(request, 'coordinator');
+    if (authResult instanceof NextResponse) return authResult;
 
     const body = await request.json() as {
       classId: string;

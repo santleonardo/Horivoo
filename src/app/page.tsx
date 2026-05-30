@@ -15,6 +15,9 @@ import { DashboardPage }     from '@/components/pages/DashboardPage';
 import { ProfessoresPage }   from '@/components/pages/ProfessoresPage';
 import { AlunosPage }        from '@/components/pages/AlunosPage';
 import { AgendaPage }        from '@/components/pages/AgendaPage';
+import { TurmasPage }        from '@/components/pages/TurmasPage';
+import { ProvasPage }        from '@/components/pages/ProvasPage';
+import { FaltasPage }        from '@/components/pages/FaltasPage';
 import { CalendarioPage }    from '@/components/pages/CalendarioPage';
 import { FeriadosPage }      from '@/components/pages/FeriadosPage';
 import { RecessosPage }      from '@/components/pages/RecessosPage';
@@ -51,6 +54,9 @@ const pageLabels: Record<PageKey, string> = {
   professores:   'Professores',
   alunos:        'Alunos',
   agenda:        'Agenda',
+  turmas:        'Turmas',
+  provas:        'Provas',
+  faltas:        'Faltas',
   calendario:    'Calendário',
   feriados:      'Feriados',
   recessos:      'Recessos',
@@ -75,6 +81,9 @@ const pageComponents: Record<PageKey, React.ComponentType> = {
   professores:   ProfessoresPage,
   alunos:        AlunosPage,
   agenda:        AgendaPage,
+  turmas:        TurmasPage,
+  provas:        ProvasPage,
+  faltas:        FaltasPage,
   calendario:    CalendarioPage,
   feriados:      FeriadosPage,
   recessos:      RecessosPage,

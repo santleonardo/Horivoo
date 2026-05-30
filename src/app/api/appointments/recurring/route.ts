@@ -1,21 +1,18 @@
 /**
  * /api/appointments/recurring — Create recurring appointments
+ * POST: Only coordinator
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { getUserFromRequest } from '@/lib/auth';
+import { requireRole } from '@/lib/auth';
 import { addDays, format, parse } from 'date-fns';
 
 type Row = Record<string, unknown>;
 
 export async function POST(request: NextRequest) {
   try {
-    const user = await getUserFromRequest(request);
-    if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
-
-    if (user.role !== 'coordinator') {
-      return NextResponse.json({ error: 'Apenas coordenadores podem criar agendamentos recorrentes' }, { status: 403 });
-    }
+    const authResult = await requireRole(request, 'coordinator');
+    if (authResult instanceof NextResponse) return authResult;
 
     const body = await request.json() as {
       teacherId: string;
@@ -54,7 +51,7 @@ export async function POST(request: NextRequest) {
     // Create appointments for each date
     const created: Row[] = [];
     for (const date of dates) {
-      // Check conflicts
+      // Check for holidays/recesses
       const [holiday, recess] = await Promise.all([
         db.holiday.findFirst({ where: { date } }),
         db.recess.findFirst({ where: { start_date: { lte: date }, end_date: { gte: date } } }),

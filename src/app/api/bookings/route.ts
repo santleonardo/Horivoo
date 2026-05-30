@@ -1,26 +1,30 @@
 /**
- * /api/bookings/route.ts (atualizado v0.3)
- * Novos filtros no GET:
- *   ?studentEmail=   → aulas de um aluno específico (para a página Minhas Aulas)
- *   ?from=yyyy-MM-dd → data inicial do filtro
- *   ?to=yyyy-MM-dd   → data final do filtro
+ * /api/bookings/route.ts (atualizado v0.5)
+ * GET: All authenticated users can view
+ * POST: Only coordinator can create bookings; uses checkAvailability
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { requireRole } from '@/lib/auth';
+import { checkAvailability } from '@/lib/availability';
 import { addDays, format, parse } from 'date-fns';
 
 type Row = Record<string, unknown>;
 
 export async function GET(request: NextRequest) {
   try {
+    // All authenticated users can view bookings
+    const authResult = await requireRole(request, 'coordinator', 'teacher', 'student');
+    if (authResult instanceof NextResponse) return authResult;
+
     const { searchParams } = new URL(request.url);
     const teacherId        = searchParams.get('teacherId');
     const studentProfileId = searchParams.get('studentProfileId');
-    const studentEmail     = searchParams.get('studentEmail');   // ← NOVO
+    const studentEmail     = searchParams.get('studentEmail');
     const date             = searchParams.get('date');
     const weekStartStr     = searchParams.get('weekStart');
-    const fromStr          = searchParams.get('from');           // ← NOVO
-    const toStr            = searchParams.get('to');             // ← NOVO
+    const fromStr          = searchParams.get('from');
+    const toStr            = searchParams.get('to');
     const status           = searchParams.get('status');
     const bookingType      = searchParams.get('bookingType');
 
@@ -38,7 +42,6 @@ export async function GET(request: NextRequest) {
       for (let i = 0; i < 7; i++) weekDates.push(format(addDays(weekStart, i), 'yyyy-MM-dd'));
       where['date'] = { in: weekDates };
     } else if (fromStr && toStr) {
-      // Build list of dates between from and to (max 31 days)
       const from = parse(fromStr, 'yyyy-MM-dd', new Date());
       const to   = parse(toStr,   'yyyy-MM-dd', new Date());
       const dates: string[] = [];
@@ -48,6 +51,15 @@ export async function GET(request: NextRequest) {
         cur = addDays(cur, 1);
       }
       where['date'] = { in: dates };
+    }
+
+    // Role-based filtering: teachers only see their own, students only see their own
+    if (authResult.role === 'teacher') {
+      const teacher = await db.teacher.findUnique({ where: { user_id: authResult.userId } });
+      if (teacher) where['teacher_id'] = (teacher as Row)['id'];
+    }
+    if (authResult.role === 'student') {
+      where['student_email'] = authResult.email;
     }
 
     const bookings = await db.booking.findMany({
@@ -63,7 +75,6 @@ export async function GET(request: NextRequest) {
 
     const enriched = (bookings as Row[]).map(b => ({
       ...b,
-      // Fields already camelCase after toCamel — keep explicit aliases for API consumers
       startTime:         b['startTime'],
       endTime:           b['endTime'],
       studentName:       b['studentName'],
@@ -83,6 +94,10 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    // Only coordinator can create bookings
+    const authResult = await requireRole(request, 'coordinator');
+    if (authResult instanceof NextResponse) return authResult;
+
     const body = await request.json() as {
       teacherId: string;
       studentName: string;
@@ -116,25 +131,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Reposição precisa de um agendamento original' }, { status: 400 });
     }
 
+    // Use centralized checkAvailability instead of inline checks
+    const availability = await checkAvailability({ teacherId, date, startTime, endTime });
+    if (!availability.available) {
+      return NextResponse.json({ error: availability.reason }, { status: 400 });
+    }
+
     const dayOfWeek = new Date(date + 'T12:00:00').getDay();
-
-    const [avail, existing, blocked, nonClass, holiday, recess, blockedPeriod] = await Promise.all([
-      db.availableSlot.findFirst({ where: { teacher_id: teacherId, day_of_week: dayOfWeek, start_time: startTime, end_time: endTime } }),
-      db.booking.findFirst({ where: { teacher_id: teacherId, date, start_time: startTime, status: 'confirmed' } }),
-      db.blockedSlot.findFirst({ where: { teacher_id: teacherId, date, start_time: startTime } }),
-      db.nonClassDay.findFirst({ where: { date } }),
-      db.holiday.findFirst({ where: { date } }),
-      db.recess.findFirst({ where: { start_date: { lte: date }, end_date: { gte: date } } }),
-      db.blockedPeriod.findFirst({ where: { teacher_id: teacherId, start_date: { lte: date }, end_date: { gte: date } } }),
-    ]);
-
-    if (!avail)          return NextResponse.json({ error: 'Horário não disponível para este professor' }, { status: 400 });
-    if (existing)        return NextResponse.json({ error: 'Já existe agendamento neste horário' }, { status: 400 });
-    if (blocked)         return NextResponse.json({ error: 'Horário bloqueado' }, { status: 400 });
-    if (nonClass)        return NextResponse.json({ error: 'Dia sem aula' }, { status: 400 });
-    if (holiday)         return NextResponse.json({ error: 'Feriado' }, { status: 400 });
-    if (recess)          return NextResponse.json({ error: 'Período de recesso' }, { status: 400 });
-    if (blockedPeriod)   return NextResponse.json({ error: 'Professor indisponível nesta data' }, { status: 400 });
 
     const data: Row = {
       teacher_id:         teacherId,

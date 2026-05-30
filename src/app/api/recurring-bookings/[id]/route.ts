@@ -1,11 +1,19 @@
+/**
+ * /api/recurring-bookings/[id] — Deactivate recurring booking
+ * DELETE: Only coordinator can deactivate
+ */
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { requireRole } from '@/lib/auth';
 
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const authResult = await requireRole(request, 'coordinator');
+    if (authResult instanceof NextResponse) return authResult;
+
     const { id } = await params;
     await db.recurringBooking.update({
       where: { id },

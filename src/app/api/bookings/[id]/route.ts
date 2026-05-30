@@ -1,10 +1,22 @@
+/**
+ * /api/bookings/[id] — Update / Delete booking
+ * PUT: Only coordinator can update booking status
+ * DELETE: Only coordinator can delete bookings
+ */
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { requireRole } from '@/lib/auth';
 
 type Row = Record<string, unknown>;
 
-export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function PUT(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
   try {
+    const authResult = await requireRole(request, 'coordinator');
+    if (authResult instanceof NextResponse) return authResult;
+
     const { id } = await params;
     const body = await request.json();
     const { status, notes, bookingType, originalBookingId } = body;
@@ -13,14 +25,12 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       return NextResponse.json({ error: 'Status inválido' }, { status: 400 });
     }
 
-    // update data uses snake_case for PostgREST columns
     const data: Row = {};
     if (status) data['status'] = status;
     if (notes !== undefined) data['notes'] = notes;
     if (bookingType) data['booking_type'] = bookingType;
     if (originalBookingId !== undefined) data['original_booking_id'] = originalBookingId;
 
-    // Always update the updated_at timestamp
     data['updated_at'] = new Date().toISOString();
 
     if (Object.keys(data).length === 0) {
@@ -39,8 +49,14 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   }
 }
 
-export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
   try {
+    const authResult = await requireRole(request, 'coordinator');
+    if (authResult instanceof NextResponse) return authResult;
+
     const { id } = await params;
     await db.booking.delete({ where: { id } });
     return NextResponse.json({ success: true });

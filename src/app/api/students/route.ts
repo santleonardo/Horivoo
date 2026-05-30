@@ -1,9 +1,16 @@
+/**
+ * /api/students — CRUD de alunos
+ * Updated: email is now optional; phone and responsible_name are required
+ */
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { getUserFromRequest } from '@/lib/auth';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    // db returns camelCase after toCamel transformation
+    const user = await getUserFromRequest(request);
+    if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
+
     const students = await db.student.findMany({
       orderBy: { name: 'asc' },
     });
@@ -18,14 +25,25 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { name, email, phone, userId } = body;
+    const { name, phone, responsibleName, email, notes, userId } = body;
 
-    if (!name || !email) {
-      return NextResponse.json({ error: 'Nome e email são obrigatórios' }, { status: 400 });
+    // Required fields: name, phone, responsibleName
+    if (!name || !phone || !responsibleName) {
+      return NextResponse.json(
+        { error: 'Nome, telefone e nome do responsável são obrigatórios' },
+        { status: 400 }
+      );
     }
 
     const student = await db.student.create({
-      data: { name, email, phone: phone || '', user_id: userId || '' },
+      data: {
+        name,
+        email: email || null,
+        phone,
+        responsible_name: responsibleName,
+        notes: notes || '',
+        user_id: userId || '',
+      },
     });
 
     return NextResponse.json({ student }, { status: 201 });

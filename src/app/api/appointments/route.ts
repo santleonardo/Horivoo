@@ -1,16 +1,19 @@
 /**
  * /api/appointments — CRUD de agendamentos (appointments)
+ * GET: All authenticated users, with role-based filtering
+ * POST: Only coordinator can create, uses checkAvailability
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { getUserFromRequest } from '@/lib/auth';
+import { requireRole } from '@/lib/auth';
+import { checkAvailability } from '@/lib/availability';
 
 type Row = Record<string, unknown>;
 
 export async function GET(request: NextRequest) {
   try {
-    const user = await getUserFromRequest(request);
-    if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
+    const authResult = await requireRole(request, 'coordinator', 'teacher', 'student');
+    if (authResult instanceof NextResponse) return authResult;
 
     const { searchParams } = new URL(request.url);
     const teacherId = searchParams.get('teacherId');
@@ -27,12 +30,12 @@ export async function GET(request: NextRequest) {
     if (status)    where['status'] = status;
 
     // Role-based filtering
-    if (user.role === 'teacher') {
-      const teacher = await db.teacher.findUnique({ where: { user_id: user.userId } });
+    if (authResult.role === 'teacher') {
+      const teacher = await db.teacher.findUnique({ where: { user_id: authResult.userId } });
       if (teacher) where['teacher_id'] = (teacher as Row)['id'];
     }
-    if (user.role === 'student') {
-      where['student_id'] = user.userId;
+    if (authResult.role === 'student') {
+      where['student_id'] = authResult.userId;
     }
 
     const appointments = await db.appointment.findMany({
@@ -49,13 +52,9 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const user = await getUserFromRequest(request);
-    if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
-
     // Only coordinators can create appointments
-    if (user.role !== 'coordinator') {
-      return NextResponse.json({ error: 'Apenas coordenadores podem criar agendamentos' }, { status: 403 });
-    }
+    const authResult = await requireRole(request, 'coordinator');
+    if (authResult instanceof NextResponse) return authResult;
 
     const body = await request.json() as {
       teacherId: string;
@@ -74,24 +73,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Preencha todos os campos obrigatórios' }, { status: 400 });
     }
 
-    // Validate: check availability, conflicts, holidays, recesses
+    // Use centralized checkAvailability
+    const availability = await checkAvailability({ teacherId, date, startTime, endTime });
+    if (!availability.available) {
+      return NextResponse.json({ error: availability.reason }, { status: 400 });
+    }
+
     const dayOfWeek = new Date(date + 'T12:00:00').getDay();
-
-    const [avail, existing, holiday, recess] = await Promise.all([
-      db.availableSlot.findFirst({
-        where: { teacher_id: teacherId, day_of_week: dayOfWeek, start_time: startTime, end_time: endTime },
-      }),
-      db.appointment.findFirst({
-        where: { teacher_id: teacherId, date, start_time: startTime, status: 'confirmed' },
-      }),
-      db.holiday.findFirst({ where: { date } }),
-      db.recess.findFirst({ where: { start_date: { lte: date }, end_date: { gte: date } } }),
-    ]);
-
-    if (!avail)    return NextResponse.json({ error: 'Horário não disponível para este professor' }, { status: 400 });
-    if (existing)  return NextResponse.json({ error: 'Já existe agendamento neste horário' }, { status: 400 });
-    if (holiday)   return NextResponse.json({ error: 'Feriado' }, { status: 400 });
-    if (recess)    return NextResponse.json({ error: 'Período de recesso' }, { status: 400 });
 
     const data: Row = {
       teacher_id: teacherId,

@@ -1,9 +1,12 @@
 /**
  * /api/teachers/[id]/availability — Teacher availability (slots)
+ * GET: All authenticated
+ * POST: Teacher (own) or coordinator
+ * DELETE: Teacher (own) or coordinator
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { getUserFromRequest } from '@/lib/auth';
+import { requireRole } from '@/lib/auth';
 
 type Row = Record<string, unknown>;
 
@@ -12,8 +15,8 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const user = await getUserFromRequest(request);
-    if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
+    const authResult = await requireRole(request, 'coordinator', 'teacher', 'student');
+    if (authResult instanceof NextResponse) return authResult;
 
     const { id } = await params;
     const slots = await db.availableSlot.findMany({ where: { teacher_id: id }, orderBy: { day_of_week: 'asc' } });
@@ -29,13 +32,13 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const user = await getUserFromRequest(request);
-    if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
+    const authResult = await requireRole(request, 'coordinator', 'teacher');
+    if (authResult instanceof NextResponse) return authResult;
 
-    // Teachers can manage their own availability, coordinators can manage any
+    // Teachers can only manage their own availability
     const { id } = await params;
-    if (user.role === 'teacher') {
-      const teacher = await db.teacher.findUnique({ where: { user_id: user.userId } });
+    if (authResult.role === 'teacher') {
+      const teacher = await db.teacher.findUnique({ where: { user_id: authResult.userId } });
       if (!teacher || (teacher as Row)['id'] !== id) {
         return NextResponse.json({ error: 'Não autorizado' }, { status: 403 });
       }
@@ -78,10 +81,18 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const user = await getUserFromRequest(request);
-    if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
+    const authResult = await requireRole(request, 'coordinator', 'teacher');
+    if (authResult instanceof NextResponse) return authResult;
 
+    // Teachers can only manage their own availability
     const { id } = await params;
+    if (authResult.role === 'teacher') {
+      const teacher = await db.teacher.findUnique({ where: { user_id: authResult.userId } });
+      if (!teacher || (teacher as Row)['id'] !== id) {
+        return NextResponse.json({ error: 'Não autorizado' }, { status: 403 });
+      }
+    }
+
     const { searchParams } = new URL(request.url);
     const slotId = searchParams.get('slotId');
 
