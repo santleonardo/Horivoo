@@ -1,19 +1,9 @@
-'use client';
+'use client'
 
-import { useEffect, useState, useCallback } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Textarea } from '@/components/ui/textarea';
-import { Label } from '@/components/ui/label';
-import { Input } from '@/components/ui/input';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { useState, useEffect, useCallback } from 'react'
+import { useAppStore } from '@/lib/store'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Dialog,
   DialogContent,
@@ -21,657 +11,376 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog';
+} from '@/components/ui/dialog'
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import {
-  RotateCcw,
-  Plus,
-  Loader2,
-  StickyNote,
-  XCircle,
-  CheckCircle,
-  Clock,
-  AlertCircle,
-  CalendarDays,
-  ArrowRight,
-} from 'lucide-react';
-import { toast } from 'sonner';
-import { format, parseISO } from 'date-fns';
-import { ptBR } from 'date-fns/locale';
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Badge } from '@/components/ui/badge'
+import { Separator } from '@/components/ui/separator'
+import { useToast } from '@/hooks/use-toast'
+import { Plus, CheckCircle, XCircle, Loader2, CalendarX, CalendarCheck } from 'lucide-react'
 
-interface Booking {
-  id: string;
-  date: string;
-  startTime: string;
-  endTime: string;
-  studentName: string;
-  studentEmail?: string;
-  status: string;
-  bookingType?: string;
-  originalBookingId?: string;
-  notes?: string;
-  teacher?: { name: string };
-  teacherId?: string;
-  dayOfWeek?: number;
+interface CancelledAppointment {
+  id: string
+  date: string
+  startTime: string
+  endTime: string
+  classId: string
+  teacherId: string
+  studentId: string | null
+  status: string
+  class: { id: string; name: string; subject: string }
+  teacher: { id: string; user: { name: string } }
+  student: { id: string; user: { name: string } } | null
+  makeUpClasses: { id: string }[]
 }
 
-interface Teacher {
-  id: string;
-  name: string;
-  email: string;
-  subjects: string;
-  availableSlots: { id: string; dayOfWeek: number; startTime: string; endTime: string }[];
+interface MakeUpClass {
+  id: string
+  originalAppointmentId: string
+  newDate: string
+  newStartTime: string
+  newEndTime: string
+  status: string
+  originalAppointment: {
+    id: string
+    date: string
+    startTime: string
+    endTime: string
+    class: { id: string; name: string; subject: string }
+    teacher: { id: string; user: { name: string } }
+    student: { id: string; user: { name: string } } | null
+  }
 }
 
-interface Student {
-  id: string;
-  name: string;
-  email: string;
+const statusMap: Record<string, { label: string; variant: 'default' | 'secondary' | 'outline' | 'destructive' }> = {
+  scheduled: { label: 'Agendada', variant: 'default' },
+  completed: { label: 'Concluída', variant: 'secondary' },
+  cancelled: { label: 'Cancelada', variant: 'destructive' },
 }
 
-export function ReposicoesPage() {
-  const [bookings, setBookings] = useState<Booking[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [teachers, setTeachers] = useState<Teacher[]>([]);
-  const [students, setStudents] = useState<Student[]>([]);
+export default function ReposicoesPage() {
+  const { authFetch } = useAppStore()
+  const { toast } = useToast()
 
-  // Reposition dialog state
-  const [reposOpen, setReposOpen] = useState(false);
-  const [reposOriginalBooking, setReposOriginalBooking] = useState<Booking | null>(null);
-  const [reposTeacher, setReposTeacher] = useState('');
-  const [reposDate, setReposDate] = useState('');
-  const [reposStartTime, setReposStartTime] = useState('');
-  const [reposEndTime, setReposEndTime] = useState('');
-  const [reposStudent, setReposStudent] = useState('');
-  const [reposNotes, setReposNotes] = useState('');
-  const [reposSubmitting, setReposSubmitting] = useState(false);
-  const [reposAvailableSlots, setReposAvailableSlots] = useState<{ startTime: string; endTime: string; available: boolean; reason?: string }[]>([]);
+  const [cancelledAppointments, setCancelledAppointments] = useState<CancelledAppointment[]>([])
+  const [makeUpClasses, setMakeUpClasses] = useState<MakeUpClass[]>([])
+  const [loading, setLoading] = useState(true)
 
-  const loadData = useCallback(async () => {
+  // Create makeup dialog
+  const [createOpen, setCreateOpen] = useState(false)
+  const [selectedAppointment, setSelectedAppointment] = useState('')
+  const [createForm, setCreateForm] = useState({ newDate: '', newStartTime: '', newEndTime: '' })
+  const [saving, setSaving] = useState(false)
+
+  const fetchData = useCallback(async () => {
     try {
-      const [bRes, tRes, sRes] = await Promise.all([
-        fetch('/api/bookings').then((r) => r.json()),
-        fetch('/api/teachers').then((r) => r.json()),
-        fetch('/api/students').then((r) => r.json()),
-      ]);
-      setBookings(bRes.bookings || []);
-      setTeachers(tRes.teachers || []);
-      setStudents(sRes.students || []);
+      const [cancelledRes, makeupsRes] = await Promise.all([
+        authFetch('/api/appointments?status=cancelled'),
+        authFetch('/api/makeups'),
+      ])
+
+      if (cancelledRes.ok) {
+        const cancelled = await cancelledRes.json()
+        // Filter: only those without a makeup class
+        const withoutMakeup = cancelled.filter(
+          (a: CancelledAppointment) => !a.makeUpClasses || a.makeUpClasses.length === 0
+        )
+        setCancelledAppointments(withoutMakeup)
+      }
+
+      if (makeupsRes.ok) {
+        setMakeUpClasses(await makeupsRes.json())
+      }
     } catch {
-      toast.error('Erro ao carregar dados');
+      toast({ title: 'Erro', description: 'Falha ao carregar dados.', variant: 'destructive' })
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  }, []);
+  }, [authFetch, toast])
 
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    fetchData()
+  }, [fetchData])
 
-  // Compute available slots for reposição dialog
-  useEffect(() => {
-    if (!reposTeacher || !reposDate) {
-      setReposAvailableSlots([]);
-      return;
+  const openCreateMakeup = (appointmentId?: string) => {
+    setSelectedAppointment(appointmentId || '')
+    setCreateForm({ newDate: '', newStartTime: '', newEndTime: '' })
+    setCreateOpen(true)
+  }
+
+  const handleCreate = async () => {
+    if (!selectedAppointment || !createForm.newDate || !createForm.newStartTime || !createForm.newEndTime) {
+      toast({ title: 'Erro', description: 'Preencha todos os campos.', variant: 'destructive' })
+      return
     }
-
-    const teacher = teachers.find((t) => t.id === reposTeacher);
-    if (!teacher) {
-      setReposAvailableSlots([]);
-      return;
-    }
-
-    const dateObj = new Date(reposDate + 'T12:00:00');
-    const dayOfWeek = dateObj.getDay();
-
-    const daySlots = teacher.availableSlots
-      .filter((s) => s.dayOfWeek === dayOfWeek)
-      .sort((a, b) => a.startTime.localeCompare(b.startTime));
-
-    if (daySlots.length === 0) {
-      setReposAvailableSlots([]);
-      return;
-    }
-
-    const computeAvailability = async () => {
-      try {
-        const [bookingsRes, blockedRes, holidaysRes, recessesRes] = await Promise.all([
-          fetch(`/api/bookings?teacherId=${reposTeacher}&date=${reposDate}`),
-          fetch(`/api/blocked-slots?teacherId=${reposTeacher}&date=${reposDate}`),
-          fetch(`/api/holidays?year=${reposDate.substring(0, 4)}&month=${reposDate.substring(5, 7)}`),
-          fetch('/api/recesses'),
-        ]);
-
-        const bookingsData = await bookingsRes.json();
-        const blockedData = await blockedRes.json();
-        const holidaysData = await holidaysRes.json();
-        const recessesData = await recessesRes.json();
-
-        const bookedSlots = new Set(
-          (bookingsData.bookings || [])
-            .filter((b: { status: string }) => b.status === 'confirmed')
-            .map((b: { startTime: string; endTime: string }) => `${b.startTime}-${b.endTime}`)
-        );
-
-        const blockedSlotKeys = new Set(
-          (blockedData.blockedSlots || []).map((b: { startTime: string; endTime: string }) => `${b.startTime}-${b.endTime}`)
-        );
-
-        const isHoliday = (holidaysData.holidays || []).some((h: { date: string }) => h.date === reposDate);
-        const isRecess = (recessesData.recesses || []).some(
-          (r: { startDate: string; endDate: string }) => reposDate >= r.startDate && reposDate <= r.endDate
-        );
-
-        const slots = daySlots.map((slot) => {
-          const key = `${slot.startTime}-${slot.endTime}`;
-          let available = true;
-          let reason: string | undefined;
-
-          if (isHoliday) {
-            available = false;
-            reason = 'Feriado';
-          } else if (isRecess) {
-            available = false;
-            reason = 'Recesso';
-          } else if (blockedSlotKeys.has(key)) {
-            available = false;
-            reason = 'Bloqueado';
-          } else if (bookedSlots.has(key)) {
-            available = false;
-            reason = 'Já agendado';
-          }
-
-          return { startTime: slot.startTime, endTime: slot.endTime, available, reason };
-        });
-
-        setReposAvailableSlots(slots);
-      } catch {
-        setReposAvailableSlots(daySlots.map((s) => ({ startTime: s.startTime, endTime: s.endTime, available: true })));
-      }
-    };
-
-    computeAvailability();
-  }, [reposTeacher, reposDate, teachers]);
-
-  // Separate cancelled bookings without reposição and reposition bookings
-  const repositionBookings = bookings.filter((b) => b.bookingType === 'reposition');
-  const repositionOriginalIds = new Set(repositionBookings.map((b) => b.originalBookingId).filter(Boolean));
-
-  const cancelledWithoutReposition = bookings.filter(
-    (b) => b.status === 'cancelled' && !repositionOriginalIds.has(b.id) && b.bookingType !== 'reposition'
-  );
-
-  const openReposDialog = (booking: Booking) => {
-    setReposOriginalBooking(booking);
-    setReposTeacher(booking.teacherId || '');
-    setReposDate('');
-    setReposStartTime('');
-    setReposEndTime('');
-    setReposStudent('');
-    setReposNotes(booking.notes || '');
-    setReposOpen(true);
-  };
-
-  const handleCreateReposition = async () => {
-    if (!reposTeacher || !reposDate || !reposStartTime || !reposEndTime || !reposStudent) {
-      toast.error('Preencha todos os campos obrigatórios');
-      return;
-    }
-
-    const student = students.find((s) => s.id === reposStudent);
-    if (!student) {
-      toast.error('Selecione um aluno válido');
-      return;
-    }
-
-    setReposSubmitting(true);
+    setSaving(true)
     try {
-      const res = await fetch('/api/bookings', {
+      const res = await authFetch('/api/makeups', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          teacherId: reposTeacher,
-          studentName: student.name,
-          studentEmail: student.email,
-          studentProfileId: student.id,
-          date: reposDate,
-          startTime: reposStartTime,
-          endTime: reposEndTime,
-          notes: reposNotes,
-          bookingType: 'reposition',
-          originalBookingId: reposOriginalBooking?.id,
+          originalAppointmentId: selectedAppointment,
+          ...createForm,
         }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Erro ao criar reposição');
+      })
+      if (res.ok) {
+        toast({ title: 'Sucesso', description: 'Reposição criada com sucesso!' })
+        setCreateOpen(false)
+        setLoading(true)
+        fetchData()
+      } else {
+        const data = await res.json()
+        toast({ title: 'Erro', description: data.error || 'Falha ao criar reposição.', variant: 'destructive' })
       }
-
-      toast.success('Reposição agendada com sucesso!');
-      setReposOpen(false);
-      setLoading(true);
-      loadData();
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Erro ao criar reposição');
+    } catch {
+      toast({ title: 'Erro', description: 'Falha ao criar reposição.', variant: 'destructive' })
     } finally {
-      setReposSubmitting(false);
+      setSaving(false)
     }
-  };
+  }
 
-  // Get the original booking for a reposition
-  const getOriginalBooking = (originalId?: string): Booking | undefined => {
-    if (!originalId) return undefined;
-    return bookings.find((b) => b.id === originalId);
-  };
-
-  const statusLabel = (status: string) => {
-    switch (status) {
-      case 'confirmed': return 'Confirmado';
-      case 'cancelled': return 'Cancelado';
-      case 'completed': return 'Concluído';
-      default: return status;
+  const updateMakeupStatus = async (id: string, status: string) => {
+    try {
+      const res = await authFetch(`/api/makeups/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ status }),
+      })
+      if (res.ok) {
+        const actionLabel = status === 'completed' ? 'concluída' : 'cancelada'
+        toast({ title: 'Sucesso', description: `Reposição marcada como ${actionLabel}.` })
+        fetchData()
+      } else {
+        const data = await res.json()
+        toast({ title: 'Erro', description: data.error || 'Falha ao atualizar reposição.', variant: 'destructive' })
+      }
+    } catch {
+      toast({ title: 'Erro', description: 'Falha ao atualizar reposição.', variant: 'destructive' })
     }
-  };
+  }
 
-  const statusColor = (status: string) => {
-    switch (status) {
-      case 'confirmed': return 'bg-emerald-100 text-emerald-700';
-      case 'cancelled': return 'bg-red-100 text-red-700';
-      case 'completed': return 'bg-gray-100 text-gray-700';
-      default: return 'bg-gray-100 text-gray-700';
-    }
-  };
+  const formatDate = (dateStr: string) => {
+    const [y, m, d] = dateStr.split('-')
+    return `${d}/${m}/${y}`
+  }
 
   if (loading) {
     return (
-      <div className="space-y-6">
-        <Card className="animate-pulse">
-          <CardContent className="p-6">
-            <div className="h-60 bg-muted rounded" />
-          </CardContent>
-        </Card>
+      <div className="flex-1 flex items-center justify-center p-8">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
-    );
+    )
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">Reposições</h1>
-        <p className="text-muted-foreground">Gerencie reposições de aulas canceladas</p>
+    <div className="flex-1 p-4 md:p-6 space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight">Reposições</h2>
+          <p className="text-muted-foreground">Gerencie as reposições de aulas canceladas.</p>
+        </div>
+        <Button onClick={() => openCreateMakeup()}>
+          <Plus className="h-4 w-4 mr-2" />
+          Criar Reposição
+        </Button>
       </div>
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <Card>
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-red-50">
-              <XCircle className="size-5 text-red-600" />
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Aguardando Reposição</p>
-              <p className="text-xl font-bold">{cancelledWithoutReposition.length}</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-purple-50">
-              <RotateCcw className="size-5 text-purple-600" />
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Reposições Agendadas</p>
-              <p className="text-xl font-bold">{repositionBookings.filter((b) => b.status === 'confirmed').length}</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-emerald-50">
-              <CheckCircle className="size-5 text-emerald-600" />
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Reposições Concluídas</p>
-              <p className="text-xl font-bold">{repositionBookings.filter((b) => b.status === 'completed').length}</p>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Cancelled Bookings Without Reposition */}
+      {/* Section 1: Cancelled without makeup */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <XCircle className="size-5 text-red-500" />
+          <CardTitle className="flex items-center gap-2 text-lg">
+            <CalendarX className="h-5 w-5 text-destructive" />
             Aulas Canceladas sem Reposição
           </CardTitle>
-          <CardDescription>
-            Aulas canceladas que ainda não têm uma reposição agendada
-          </CardDescription>
         </CardHeader>
         <CardContent>
-          {cancelledWithoutReposition.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              <CheckCircle className="size-12 mx-auto mb-3 opacity-30" />
-              <p>Nenhuma aula cancelada sem reposição</p>
-              <p className="text-xs mt-1">Todas as aulas canceladas já possuem reposição agendada</p>
-            </div>
+          {cancelledAppointments.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-4">
+              Nenhuma aula cancelada pendente de reposição.
+            </p>
           ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Data Original</TableHead>
-                    <TableHead>Horário</TableHead>
-                    <TableHead>Professor</TableHead>
-                    <TableHead>Aluno</TableHead>
-                    <TableHead>Observações</TableHead>
-                    <TableHead className="w-[140px]">Ação</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {cancelledWithoutReposition.map((booking) => (
-                    <TableRow key={booking.id}>
-                      <TableCell className="font-medium text-sm">
-                        {format(parseISO(booking.date), 'dd/MM/yyyy', { locale: ptBR })}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1">
-                          <Clock className="size-3 text-muted-foreground" />
-                          <span className="text-sm font-mono">
-                            {booking.startTime}-{booking.endTime}
-                          </span>
-                        </div>
-                      </TableCell>
-                      <TableCell>{booking.teacher?.name || '-'}</TableCell>
-                      <TableCell>{booking.studentName}</TableCell>
-                      <TableCell className="max-w-[200px]">
-                        {booking.notes ? (
-                          <div className="flex items-start gap-1 text-xs text-muted-foreground">
-                            <StickyNote className="size-3 shrink-0 mt-0.5" />
-                            <span className="line-clamp-2">{booking.notes}</span>
-                          </div>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">-</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Button
-                          size="sm"
-                          className="bg-purple-600 hover:bg-purple-700 h-8 text-xs"
-                          onClick={() => openReposDialog(booking)}
-                        >
-                          <RotateCcw className="size-3 mr-1" />
-                          Agendar Reposição
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+            <div className="space-y-3">
+              {cancelledAppointments.map((appt) => (
+                <div
+                  key={appt.id}
+                  className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-lg border p-4"
+                >
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-medium text-sm">
+                        {formatDate(appt.date)} • {appt.startTime}–{appt.endTime}
+                      </span>
+                      <Badge variant="outline" className="text-xs">
+                        {appt.class.name}
+                      </Badge>
+                    </div>
+                    <div className="text-sm text-muted-foreground">
+                      Professor: {appt.teacher.user.name}
+                      {appt.student && ` • Aluno: ${appt.student.user.name}`}
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    onClick={() => openCreateMakeup(appt.id)}
+                  >
+                    <Plus className="h-4 w-4 mr-1" />
+                    Criar Reposição
+                  </Button>
+                </div>
+              ))}
             </div>
           )}
         </CardContent>
       </Card>
 
-      {/* Reposition Bookings */}
+      <Separator />
+
+      {/* Section 2: Scheduled makeups */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <RotateCcw className="size-5 text-purple-500" />
+          <CardTitle className="flex items-center gap-2 text-lg">
+            <CalendarCheck className="h-5 w-5 text-emerald-600" />
             Reposições Agendadas
           </CardTitle>
-          <CardDescription>
-            Todas as reposições de aulas criadas
-          </CardDescription>
         </CardHeader>
         <CardContent>
-          {repositionBookings.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              <AlertCircle className="size-12 mx-auto mb-3 opacity-30" />
-              <p>Nenhuma reposição agendada</p>
-              <p className="text-xs mt-1">Agende uma reposição a partir de uma aula cancelada</p>
-            </div>
+          {makeUpClasses.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-4">
+              Nenhuma reposição agendada.
+            </p>
           ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Data Original</TableHead>
-                    <TableHead>Data Reposição</TableHead>
-                    <TableHead>Horário</TableHead>
-                    <TableHead>Professor</TableHead>
-                    <TableHead>Aluno</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Observações</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {repositionBookings.map((booking) => {
-                    const original = getOriginalBooking(booking.originalBookingId);
-                    return (
-                      <TableRow key={booking.id}>
-                        <TableCell className="text-sm">
-                          {original ? (
-                            <div>
-                              <span className="font-medium">
-                                {format(parseISO(original.date), 'dd/MM/yyyy', { locale: ptBR })}
-                              </span>
-                              <span className="text-xs text-muted-foreground block">
-                                {original.startTime}-{original.endTime}
-                              </span>
-                            </div>
-                          ) : (
-                            <span className="text-muted-foreground">-</span>
-                          )}
-                        </TableCell>
-                        <TableCell className="font-medium text-sm">
-                          <div className="flex items-center gap-2">
-                            <CalendarDays className="size-3 text-emerald-500" />
-                            <div>
-                              <span>
-                                {format(parseISO(booking.date), 'dd/MM/yyyy', { locale: ptBR })}
-                              </span>
-                              <span className="text-xs text-muted-foreground block">
-                                {booking.startTime}-{booking.endTime}
-                              </span>
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-1">
-                            <ArrowRight className="size-3 text-purple-400" />
-                            {booking.startTime}-{booking.endTime}
-                          </div>
-                        </TableCell>
-                        <TableCell>{booking.teacher?.name || '-'}</TableCell>
-                        <TableCell>{booking.studentName}</TableCell>
-                        <TableCell>
-                          <Badge className={statusColor(booking.status)}>
-                            {statusLabel(booking.status)}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="max-w-[200px]">
-                          {booking.notes ? (
-                            <div className="flex items-start gap-1 text-xs text-muted-foreground">
-                              <StickyNote className="size-3 shrink-0 mt-0.5" />
-                              <span className="line-clamp-2">{booking.notes}</span>
-                            </div>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">-</span>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
+            <div className="space-y-3">
+              {makeUpClasses.map((mu) => {
+                const st = statusMap[mu.status] || { label: mu.status, variant: 'outline' as const }
+                const original = mu.originalAppointment
+                const isScheduled = mu.status === 'scheduled'
+
+                return (
+                  <div
+                    key={mu.id}
+                    className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-lg border p-4"
+                  >
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm text-muted-foreground">
+                          {formatDate(original.date)} {original.startTime}–{original.endTime}
+                        </span>
+                        <span className="text-sm font-medium">→</span>
+                        <span className="font-medium text-sm">
+                          {formatDate(mu.newDate)} {mu.newStartTime}–{mu.newEndTime}
+                        </span>
+                        <Badge variant={st.variant}>{st.label}</Badge>
+                      </div>
+                      <div className="text-sm text-muted-foreground">
+                        Professor: {original.teacher.user.name}
+                        {original.student && ` • Aluno: ${original.student.user.name}`}
+                        {' • '}
+                        Turma: {original.class.name}
+                      </div>
+                    </div>
+                    {isScheduled && (
+                      <div className="flex items-center gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => updateMakeupStatus(mu.id, 'completed')}
+                          title="Marcar como concluída"
+                        >
+                          <CheckCircle className="h-4 w-4 mr-1 text-emerald-600" />
+                          Concluir
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => updateMakeupStatus(mu.id, 'cancelled')}
+                          title="Cancelar reposição"
+                        >
+                          <XCircle className="h-4 w-4 mr-1 text-destructive" />
+                          Cancelar
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           )}
         </CardContent>
       </Card>
 
-      {/* Reposition Dialog */}
-      <Dialog open={reposOpen} onOpenChange={setReposOpen}>
-        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+      {/* Create Makeup Dialog */}
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent>
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <RotateCcw className="size-5 text-purple-600" />
-              Agendar Reposição
-            </DialogTitle>
-            <DialogDescription>
-              Crie uma reposição para a aula cancelada
-            </DialogDescription>
+            <DialogTitle>Criar Reposição</DialogTitle>
+            <DialogDescription>Agende uma reposição para uma aula cancelada.</DialogDescription>
           </DialogHeader>
-
-          {reposOriginalBooking && (
-            <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-sm">
-              <p className="font-medium text-red-800">Aula Original Cancelada:</p>
-              <p className="text-red-700">
-                {format(parseISO(reposOriginalBooking.date), 'dd/MM/yyyy')} •{' '}
-                {reposOriginalBooking.startTime}-{reposOriginalBooking.endTime} •{' '}
-                {reposOriginalBooking.studentName} • {reposOriginalBooking.teacher?.name}
-              </p>
-              {reposOriginalBooking.notes && (
-                <p className="text-xs text-red-600 mt-1">Obs: {reposOriginalBooking.notes}</p>
-              )}
-            </div>
-          )}
-
           <div className="space-y-4">
-            {/* Teacher */}
             <div className="space-y-2">
-              <Label>Professor *</Label>
-              <Select value={reposTeacher} onValueChange={(v) => {
-                setReposTeacher(v);
-                setReposStartTime('');
-                setReposEndTime('');
-              }}>
+              <Label>Aula Cancelada</Label>
+              <Select
+                value={selectedAppointment}
+                onValueChange={setSelectedAppointment}
+              >
                 <SelectTrigger>
-                  <SelectValue placeholder="Selecione o professor" />
+                  <SelectValue placeholder="Selecione a aula cancelada" />
                 </SelectTrigger>
                 <SelectContent>
-                  {teachers.map((t) => (
-                    <SelectItem key={t.id} value={t.id}>
-                      {t.name}
-                      {t.subjects ? ` — ${t.subjects.split(',').slice(0, 2).join(', ')}` : ''}
+                  {cancelledAppointments.map((a) => (
+                    <SelectItem key={a.id} value={a.id}>
+                      {formatDate(a.date)} {a.startTime}–{a.endTime} — {a.class.name} — {a.teacher.user.name}
+                      {a.student ? ` — ${a.student.user.name}` : ''}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
-
-            {/* Date */}
             <div className="space-y-2">
-              <Label>Data da Reposição *</Label>
+              <Label htmlFor="makeup-date">Nova Data</Label>
               <Input
+                id="makeup-date"
                 type="date"
-                value={reposDate}
-                onChange={(e) => {
-                  setReposDate(e.target.value);
-                  setReposStartTime('');
-                  setReposEndTime('');
-                }}
-                min={format(new Date(), 'yyyy-MM-dd')}
+                value={createForm.newDate}
+                onChange={(e) => setCreateForm({ ...createForm, newDate: e.target.value })}
               />
             </div>
-
-            {/* Available Slots */}
-            {reposTeacher && reposDate && reposAvailableSlots.length > 0 && (
+            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label className="text-emerald-600">Horários Disponíveis</Label>
-                <div className="flex flex-wrap gap-1">
-                  {reposAvailableSlots.map((slot) => (
-                    <button
-                      key={`${slot.startTime}-${slot.endTime}`}
-                      className={`px-2 py-1 rounded text-xs border transition-all ${
-                        !slot.available
-                          ? 'bg-gray-50 border-gray-200 text-gray-400 cursor-not-allowed line-through'
-                          : reposStartTime === slot.startTime && reposEndTime === slot.endTime
-                          ? 'bg-purple-600 text-white border-purple-600'
-                          : 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100 cursor-pointer'
-                      }`}
-                      disabled={!slot.available}
-                      onClick={() => {
-                        if (slot.available) {
-                          setReposStartTime(slot.startTime);
-                          setReposEndTime(slot.endTime);
-                        }
-                      }}
-                    >
-                      {slot.startTime}-{slot.endTime}
-                      {!slot.available && slot.reason && ` (${slot.reason})`}
-                    </button>
-                  ))}
-                </div>
+                <Label htmlFor="makeup-start">Horário Início</Label>
+                <Input
+                  id="makeup-start"
+                  type="time"
+                  value={createForm.newStartTime}
+                  onChange={(e) => setCreateForm({ ...createForm, newStartTime: e.target.value })}
+                />
               </div>
-            )}
-
-            {reposTeacher && reposDate && reposAvailableSlots.length === 0 && (
-              <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-700">
-                Nenhum horário disponível para este professor nesta data.
+              <div className="space-y-2">
+                <Label htmlFor="makeup-end">Horário Fim</Label>
+                <Input
+                  id="makeup-end"
+                  type="time"
+                  value={createForm.newEndTime}
+                  onChange={(e) => setCreateForm({ ...createForm, newEndTime: e.target.value })}
+                />
               </div>
-            )}
-
-            {/* Student */}
-            <div className="space-y-2">
-              <Label>Aluno *</Label>
-              <Select value={reposStudent} onValueChange={setReposStudent}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione o aluno" />
-                </SelectTrigger>
-                <SelectContent>
-                  {students.map((s) => (
-                    <SelectItem key={s.id} value={s.id}>
-                      {s.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Notes */}
-            <div className="space-y-2">
-              <Label className="flex items-center gap-1">
-                <StickyNote className="size-4" />
-                Observações
-              </Label>
-              <Textarea
-                placeholder="Ex: Matéria, livro, capítulo, tema da aula..."
-                value={reposNotes}
-                onChange={(e) => setReposNotes(e.target.value)}
-                rows={3}
-              />
             </div>
           </div>
-
           <DialogFooter>
-            <Button variant="outline" onClick={() => setReposOpen(false)}>
+            <Button variant="outline" onClick={() => setCreateOpen(false)}>
               Cancelar
             </Button>
-            <Button
-              onClick={handleCreateReposition}
-              disabled={reposSubmitting}
-              className="bg-purple-600 hover:bg-purple-700"
-            >
-              {reposSubmitting ? (
-                <Loader2 className="size-4 mr-2 animate-spin" />
-              ) : (
-                <RotateCcw className="size-4 mr-2" />
-              )}
-              Agendar Reposição
+            <Button onClick={handleCreate} disabled={saving}>
+              {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Criar Reposição
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
-  );
+  )
 }

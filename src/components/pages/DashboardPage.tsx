@@ -1,283 +1,252 @@
-'use client';
+'use client'
 
-import { useEffect, useState } from 'react';
-import { useAuthStore } from '@/lib/store';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
+import { useEffect, useState } from 'react'
+import { useAppStore } from '@/lib/store'
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import {
   GraduationCap,
   Users,
+  BookOpen,
   CalendarCheck,
-  CalendarDays,
   Plus,
-  UserPlus,
-  Calendar,
   Clock,
+  MapPin,
   User,
-  ArrowRight,
-} from 'lucide-react';
-import { format, parseISO } from 'date-fns';
-import { ptBR } from 'date-fns/locale';
+} from 'lucide-react'
 
 interface DashboardData {
-  totalTeachers: number;
-  totalStudents: number;
-  totalBookings: number;
-  todayBookings: number;
-  weekBookings: number;
-  upcomingBookings: {
-    id: string;
-    date: string;
-    startTime: string;
-    endTime: string;
-    studentName: string;
-    teacherName: string;
-    status: string;
-  }[];
+  totalTeachers: number
+  totalStudents: number
+  totalClasses: number
+  totalAppointmentsToday: number
+  upcomingAppointments: Array<{
+    id: string
+    date: string
+    startTime: string
+    endTime: string
+    status: string
+    notes: string
+    class: { id: string; name: string; subject: string }
+    teacher: { id: string; user: { name: string } }
+    student: { id: string; user: { name: string } } | null
+  }>
 }
 
-export function DashboardPage() {
-  const { user, setActivePage } = useAuthStore();
-  const [data, setData] = useState<DashboardData | null>(null);
-  const [loading, setLoading] = useState(true);
+const weekdayNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab']
+const monthNames = [
+  'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+  'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
+]
+
+function formatDate(dateStr: string): string {
+  const d = new Date(dateStr + 'T12:00:00')
+  return `${d.getDate()} de ${monthNames[d.getMonth()]} de ${d.getFullYear()}`
+}
+
+function getWeekdayName(dateStr: string): string {
+  const d = new Date(dateStr + 'T12:00:00')
+  return weekdayNames[d.getDay()]
+}
+
+export default function DashboardPage() {
+  const { user, setActivePage, authFetch } = useAppStore()
+  const [data, setData] = useState<DashboardData | null>(null)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    fetch('/api/dashboard')
-      .then((res) => res.json())
-      .then((d) => {
-        setData(d);
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
-  }, []);
+    async function loadDashboard() {
+      try {
+        const res = await authFetch('/api/dashboard')
+        if (res.ok) {
+          const json = await res.json()
+          setData(json)
+        }
+      } catch (err) {
+        console.error('Erro ao carregar dashboard:', err)
+      } finally {
+        setLoading(false)
+      }
+    }
+    loadDashboard()
+  }, [authFetch])
 
-  if (loading) {
-    return (
-      <div className="space-y-6">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {[...Array(4)].map((_, i) => (
-            <Card key={i} className="animate-pulse">
-              <CardContent className="p-6">
-                <div className="h-20 bg-muted rounded" />
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </div>
-    );
-  }
+  const today = new Date()
+  const todayFormatted = `${today.getDate()} de ${monthNames[today.getMonth()]} de ${today.getFullYear()}`
 
-  const firstName = user?.name?.split(' ')[0] || 'Usuário';
-
-  const stats = [
+  const statCards = [
     {
       label: 'Total Professores',
-      value: data?.totalTeachers || 0,
+      value: data?.totalTeachers ?? 0,
       icon: GraduationCap,
       color: 'text-emerald-600',
-      bg: 'bg-emerald-50',
+      bg: 'bg-emerald-50 dark:bg-emerald-950/40',
     },
     {
       label: 'Total Alunos',
-      value: data?.totalStudents || 0,
+      value: data?.totalStudents ?? 0,
       icon: Users,
-      color: 'text-teal-600',
-      bg: 'bg-teal-50',
-    },
-    {
-      label: 'Agendamentos Hoje',
-      value: data?.todayBookings || 0,
-      icon: CalendarCheck,
       color: 'text-amber-600',
-      bg: 'bg-amber-50',
+      bg: 'bg-amber-50 dark:bg-amber-950/40',
     },
     {
-      label: 'Agendamentos Semana',
-      value: data?.weekBookings || 0,
-      icon: CalendarDays,
+      label: 'Total Turmas',
+      value: data?.totalClasses ?? 0,
+      icon: BookOpen,
       color: 'text-rose-600',
-      bg: 'bg-rose-50',
+      bg: 'bg-rose-50 dark:bg-rose-950/40',
     },
-  ];
+    {
+      label: 'Aulas Hoje',
+      value: data?.totalAppointmentsToday ?? 0,
+      icon: CalendarCheck,
+      color: 'text-sky-600',
+      bg: 'bg-sky-50 dark:bg-sky-950/40',
+    },
+  ]
 
   return (
-    <div className="space-y-6">
-      {/* Welcome */}
-      <Card className="bg-gradient-to-r from-emerald-600 to-emerald-700 text-white border-0">
-        <CardContent className="p-6">
-          <div className="flex items-center justify-between flex-wrap gap-4">
-            <div>
-              <h1 className="text-2xl font-bold">Olá, {firstName}! 👋</h1>
-              <p className="text-emerald-100 mt-1">
-                Bem-vindo ao Horivoo. Aqui está um resumo da sua agenda.
-              </p>
-            </div>
-            <div className="flex gap-2">
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => setActivePage('agenda')}
-                className="bg-white/20 text-white hover:bg-white/30 border-0"
-              >
-                <Plus className="size-4 mr-1" />
-                Novo Agendamento
-              </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => setActivePage('professores')}
-                className="bg-white/20 text-white hover:bg-white/30 border-0"
-              >
-                <UserPlus className="size-4 mr-1" />
-                Adicionar Professor
-              </Button>
-            </div>
-          </div>
+    <div className="flex-1 p-4 md:p-6 space-y-6">
+      {/* Welcome Card */}
+      <Card className="border-emerald-200 dark:border-emerald-800 bg-gradient-to-br from-emerald-50 to-white dark:from-emerald-950/30 dark:to-background">
+        <CardHeader>
+          <CardTitle className="text-2xl md:text-3xl font-bold text-emerald-800 dark:text-emerald-200">
+            Olá, {user?.name?.split(' ')[0]}! 👋
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-emerald-600 dark:text-emerald-400 text-sm md:text-base">
+            {todayFormatted} — Bem-vindo ao painel de controle do Horivoo
+          </p>
         </CardContent>
       </Card>
 
-      {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {stats.map((stat) => (
-          <Card key={stat.label} className="hover:shadow-md transition-shadow">
-            <CardContent className="p-6">
-              <div className="flex items-center gap-4">
-                <div className={`p-3 rounded-xl ${stat.bg}`}>
-                  <stat.icon className={`size-6 ${stat.color}`} />
+      {/* Stat Cards */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {statCards.map((card) => {
+          const Icon = card.icon
+          return (
+            <Card key={card.label} className="hover:shadow-md transition-shadow">
+              <CardContent className="pt-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">
+                      {card.label}
+                    </p>
+                    <p className={`text-3xl font-bold mt-1 ${card.color}`}>
+                      {loading ? '—' : card.value}
+                    </p>
+                  </div>
+                  <div className={`p-3 rounded-xl ${card.bg}`}>
+                    <Icon className={`h-6 w-6 ${card.color}`} />
+                  </div>
                 </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">{stat.label}</p>
-                  <p className="text-2xl font-bold">{stat.value}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+              </CardContent>
+            </Card>
+          )
+        })}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Upcoming Appointments */}
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-lg font-semibold">Próximos Agendamentos</CardTitle>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setActivePage('agendamentos')}
-                className="text-emerald-600 hover:text-emerald-700"
-              >
-                Ver todos <ArrowRight className="size-4 ml-1" />
-              </Button>
+      {/* Quick Actions */}
+      <div>
+        <h3 className="text-lg font-semibold mb-3">Ações Rápidas</h3>
+        <div className="flex flex-wrap gap-3">
+          <Button
+            onClick={() => setActivePage('agenda')}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2"
+          >
+            <Plus className="h-4 w-4" />
+            Novo Agendamento
+          </Button>
+          <Button
+            onClick={() => setActivePage('turmas')}
+            variant="outline"
+            className="gap-2 border-emerald-300 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-700 dark:text-emerald-300 dark:hover:bg-emerald-950/40"
+          >
+            <BookOpen className="h-4 w-4" />
+            Nova Turma
+          </Button>
+          <Button
+            onClick={() => setActivePage('alunos')}
+            variant="outline"
+            className="gap-2 border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-300 dark:hover:bg-amber-950/40"
+          >
+            <Users className="h-4 w-4" />
+            Novo Aluno
+          </Button>
+        </div>
+      </div>
+
+      {/* Próximas Aulas */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Clock className="h-5 w-5 text-emerald-600" />
+            Próximas Aulas
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <div className="space-y-3">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="h-16 bg-muted animate-pulse rounded-lg" />
+              ))}
             </div>
-            <CardDescription>Próximos 5 agendamentos confirmados</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {data?.upcomingBookings && data.upcomingBookings.length > 0 ? (
-              <div className="space-y-3">
-                {data.upcomingBookings.map((booking) => (
-                  <div
-                    key={booking.id}
-                    className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 hover:bg-muted transition-colors"
-                  >
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
-                      <Clock className="size-5" />
+          ) : data?.upcomingAppointments && data.upcomingAppointments.length > 0 ? (
+            <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
+              {data.upcomingAppointments.map((apt) => (
+                <div
+                  key={apt.id}
+                  className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-lg border bg-card hover:bg-accent/50 transition-colors gap-2"
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="p-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 mt-0.5">
+                      <CalendarCheck className="h-4 w-4 text-emerald-600" />
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <p className="text-sm font-medium truncate">
-                          {booking.studentName}
-                        </p>
-                        <Badge variant="secondary" className="text-xs shrink-0">
-                          {booking.startTime}-{booking.endTime}
-                        </Badge>
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        <User className="size-3 inline mr-1" />
-                        {booking.teacherName} •{' '}
-                        {format(parseISO(booking.date), "dd 'de' MMM", { locale: ptBR })}
+                    <div className="space-y-1">
+                      <p className="font-medium text-sm">
+                        {apt.class.name} — {apt.class.subject}
                       </p>
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                        <span className="flex items-center gap-1">
+                          <User className="h-3 w-3" />
+                          {apt.teacher.user.name}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <MapPin className="h-3 w-3" />
+                          {getWeekdayName(apt.date)}, {apt.startTime} - {apt.endTime}
+                        </span>
+                        <span>{formatDate(apt.date)}</span>
+                      </div>
                     </div>
                   </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-8 text-muted-foreground">
-                <CalendarDays className="size-12 mx-auto mb-3 opacity-30" />
-                <p>Nenhum agendamento próximo</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Quick Actions */}
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-lg font-semibold">Ações Rápidas</CardTitle>
-            <CardDescription>Acesse rapidamente as principais funcionalidades</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <Button
-                variant="outline"
-                className="h-auto p-4 justify-start gap-3 hover:bg-emerald-50 hover:border-emerald-200"
-                onClick={() => setActivePage('agenda')}
-              >
-                <div className="p-2 rounded-lg bg-emerald-100">
-                  <Plus className="size-5 text-emerald-600" />
+                  <Badge
+                    variant={
+                      apt.status === 'confirmed'
+                        ? 'default'
+                        : apt.status === 'completed'
+                        ? 'secondary'
+                        : 'destructive'
+                    }
+                    className="text-xs w-fit"
+                  >
+                    {apt.status === 'confirmed'
+                      ? 'Confirmada'
+                      : apt.status === 'completed'
+                      ? 'Concluída'
+                      : 'Cancelada'}
+                  </Badge>
                 </div>
-                <div className="text-left">
-                  <p className="font-medium text-sm">Novo Agendamento</p>
-                  <p className="text-xs text-muted-foreground">Agendar horário</p>
-                </div>
-              </Button>
-
-              <Button
-                variant="outline"
-                className="h-auto p-4 justify-start gap-3 hover:bg-teal-50 hover:border-teal-200"
-                onClick={() => setActivePage('professores')}
-              >
-                <div className="p-2 rounded-lg bg-teal-100">
-                  <UserPlus className="size-5 text-teal-600" />
-                </div>
-                <div className="text-left">
-                  <p className="font-medium text-sm">Adicionar Professor</p>
-                  <p className="text-xs text-muted-foreground">Cadastrar docente</p>
-                </div>
-              </Button>
-
-              <Button
-                variant="outline"
-                className="h-auto p-4 justify-start gap-3 hover:bg-amber-50 hover:border-amber-200"
-                onClick={() => setActivePage('calendario')}
-              >
-                <div className="p-2 rounded-lg bg-amber-100">
-                  <Calendar className="size-5 text-amber-600" />
-                </div>
-                <div className="text-left">
-                  <p className="font-medium text-sm">Ver Calendário</p>
-                  <p className="text-xs text-muted-foreground">Visão mensal</p>
-                </div>
-              </Button>
-
-              <Button
-                variant="outline"
-                className="h-auto p-4 justify-start gap-3 hover:bg-rose-50 hover:border-rose-200"
-                onClick={() => setActivePage('exportar')}
-              >
-                <div className="p-2 rounded-lg bg-rose-100">
-                  <GraduationCap className="size-5 text-rose-600" />
-                </div>
-                <div className="text-left">
-                  <p className="font-medium text-sm">Exportar Dados</p>
-                  <p className="text-xs text-muted-foreground">CSV ou PDF</p>
-                </div>
-              </Button>
+              ))}
             </div>
-          </CardContent>
-        </Card>
-      </div>
+          ) : (
+            <p className="text-sm text-muted-foreground text-center py-8">
+              Nenhuma aula agendada para os próximos 7 dias.
+            </p>
+          )}
+        </CardContent>
+      </Card>
     </div>
-  );
+  )
 }
