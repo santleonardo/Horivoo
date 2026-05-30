@@ -1,5 +1,6 @@
 'use client';
 
+import { authFetch } from '@/lib/store';
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -60,7 +61,7 @@ export default function RecurringBookingsManager({
   const fetchBookings = async () => {
     try {
       const params = teacherId ? `?teacherId=${teacherId}` : '';
-      const res = await fetch(`/api/recurring-bookings${params}`);
+      const res = await authFetch(`/api/recurring-bookings${params}`);
       if (res.ok) {
         const data = await res.json();
         setBookings(data.recurringBookings || []);
@@ -77,7 +78,7 @@ export default function RecurringBookingsManager({
     }
     setLoading(true);
     try {
-      const res = await fetch('/api/recurring-bookings', {
+      const res = await authFetch('/api/recurring-bookings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -109,7 +110,7 @@ export default function RecurringBookingsManager({
 
   const handleDeactivate = async (id: string) => {
     try {
-      const res = await fetch(`/api/recurring-bookings/${id}`, { method: 'DELETE' });
+      const res = await authFetch(`/api/recurring-bookings/${id}`, { method: 'DELETE' });
       if (!res.ok) {
         toast.error('Erro ao desativar agendamento');
         return;

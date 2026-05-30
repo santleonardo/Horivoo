@@ -1,5 +1,6 @@
 'use client';
 
+import { authFetch } from '@/lib/store';
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -26,7 +27,7 @@ export default function NonClassDaysManager({ onUpdate }: { onUpdate?: () => voi
 
   const fetchDays = async () => {
     try {
-      const res = await fetch('/api/non-class-days');
+      const res = await authFetch('/api/non-class-days');
       if (res.ok) setDays(await res.json());
     } catch {
       toast.error('Erro ao buscar dias sem aula');
@@ -40,7 +41,7 @@ export default function NonClassDaysManager({ onUpdate }: { onUpdate?: () => voi
     }
     setLoading(true);
     try {
-      const res = await fetch('/api/non-class-days', {
+      const res = await authFetch('/api/non-class-days', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ date, reason }),
@@ -64,7 +65,7 @@ export default function NonClassDaysManager({ onUpdate }: { onUpdate?: () => voi
 
   const handleRemove = async (id: string) => {
     try {
-      const res = await fetch(`/api/non-class-days/${id}`, { method: 'DELETE' });
+      const res = await authFetch(`/api/non-class-days/${id}`, { method: 'DELETE' });
       if (!res.ok) {
         toast.error('Erro ao remover dia sem aula');
         return;

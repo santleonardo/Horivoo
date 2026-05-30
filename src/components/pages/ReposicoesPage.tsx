@@ -1,5 +1,6 @@
 'use client';
 
+import { authFetch } from '@/lib/store';
 import { useEffect, useState, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -97,9 +98,9 @@ export function ReposicoesPage() {
   const loadData = useCallback(async () => {
     try {
       const [bRes, tRes, sRes] = await Promise.all([
-        fetch('/api/bookings').then((r) => r.json()),
-        fetch('/api/teachers').then((r) => r.json()),
-        fetch('/api/students').then((r) => r.json()),
+        authFetch('/api/bookings').then((r) => r.json()),
+        authFetch('/api/teachers').then((r) => r.json()),
+        authFetch('/api/students').then((r) => r.json()),
       ]);
       setBookings(bRes.bookings || []);
       setTeachers(tRes.teachers || []);
@@ -143,10 +144,10 @@ export function ReposicoesPage() {
     const computeAvailability = async () => {
       try {
         const [bookingsRes, blockedRes, holidaysRes, recessesRes] = await Promise.all([
-          fetch(`/api/bookings?teacherId=${reposTeacher}&date=${reposDate}`),
-          fetch(`/api/blocked-slots?teacherId=${reposTeacher}&date=${reposDate}`),
-          fetch(`/api/holidays?year=${reposDate.substring(0, 4)}&month=${reposDate.substring(5, 7)}`),
-          fetch('/api/recesses'),
+          authFetch(`/api/bookings?teacherId=${reposTeacher}&date=${reposDate}`),
+          authFetch(`/api/blocked-slots?teacherId=${reposTeacher}&date=${reposDate}`),
+          authFetch(`/api/holidays?year=${reposDate.substring(0, 4)}&month=${reposDate.substring(5, 7)}`),
+          authFetch('/api/recesses'),
         ]);
 
         const bookingsData = await bookingsRes.json();
@@ -233,7 +234,7 @@ export function ReposicoesPage() {
 
     setReposSubmitting(true);
     try {
-      const res = await fetch('/api/bookings', {
+      const res = await authFetch('/api/bookings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

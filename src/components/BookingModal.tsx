@@ -1,5 +1,6 @@
 'use client';
 
+import { authFetch } from '@/lib/store';
 import { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -51,7 +52,7 @@ export default function BookingModal({
     }
     setLoading(true);
     try {
-      const res = await fetch('/api/bookings', {
+      const res = await authFetch('/api/bookings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -82,7 +83,7 @@ export default function BookingModal({
     if (!slot.booking?.id) return;
     setLoading(true);
     try {
-      const res = await fetch(`/api/bookings/${slot.booking.id}`, { method: 'DELETE' });
+      const res = await authFetch(`/api/bookings/${slot.booking.id}`, { method: 'DELETE' });
       if (!res.ok) {
         toast.error('Erro ao cancelar agendamento');
         return;
@@ -100,7 +101,7 @@ export default function BookingModal({
   const handleBlock = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/blocked-slots', {
+      const res = await authFetch('/api/blocked-slots', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -129,7 +130,7 @@ export default function BookingModal({
     if (!slot.blockedSlot?.id) return;
     setLoading(true);
     try {
-      const res = await fetch(`/api/blocked-slots/${slot.blockedSlot.id}`, { method: 'DELETE' });
+      const res = await authFetch(`/api/blocked-slots/${slot.blockedSlot.id}`, { method: 'DELETE' });
       if (!res.ok) {
         toast.error('Erro ao desbloquear horário');
         return;

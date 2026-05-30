@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useAuthStore } from '@/lib/store';
+import { useAuthStore, authFetch } from '@/lib/store';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -68,7 +68,7 @@ export function DashboardPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('/api/dashboard')
+    authFetch('/api/dashboard')
       .then((res) => res.json())
       .then((d) => {
         setData(d);

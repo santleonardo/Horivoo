@@ -1,5 +1,6 @@
 'use client';
 
+import { authFetch } from '@/lib/store';
 import { useEffect, useState, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -41,7 +42,7 @@ export function RecessosPage() {
 
   const loadRecesses = useCallback(async () => {
     try {
-      const res = await fetch('/api/recesses');
+      const res = await authFetch('/api/recesses');
       const data = await res.json();
       setRecesses(data.recesses || []);
     } catch {
@@ -67,7 +68,7 @@ export function RecessosPage() {
     }
 
     try {
-      const res = await fetch('/api/recesses', {
+      const res = await authFetch('/api/recesses', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),
@@ -85,7 +86,7 @@ export function RecessosPage() {
   const handleDelete = async (id: string) => {
     if (!confirm('Deseja realmente excluir este recesso?')) return;
     try {
-      await fetch(`/api/recesses/${id}`, { method: 'DELETE' });
+      await authFetch(`/api/recesses/${id}`, { method: 'DELETE' });
       toast.success('Recesso excluído');
       loadRecesses();
     } catch {

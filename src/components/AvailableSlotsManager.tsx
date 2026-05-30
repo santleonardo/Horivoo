@@ -1,5 +1,6 @@
 'use client';
 
+import { authFetch } from '@/lib/store';
 import { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -38,7 +39,7 @@ export default function AvailableSlotsManager({ teacherId, onUpdate }: { teacher
 
   const fetchSlots = async () => {
     try {
-      const res = await fetch(`/api/teachers/${teacherId}/available-slots`);
+      const res = await authFetch(`/api/teachers/${teacherId}/available-slots`);
       if (res.ok) {
         const data = await res.json();
         setSlots(data.slots || []);
@@ -51,7 +52,7 @@ export default function AvailableSlotsManager({ teacherId, onUpdate }: { teacher
   const handleAdd = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/teachers/${teacherId}/available-slots`, {
+      const res = await authFetch(`/api/teachers/${teacherId}/available-slots`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -77,7 +78,7 @@ export default function AvailableSlotsManager({ teacherId, onUpdate }: { teacher
 
   const handleRemove = async (slotId: string) => {
     try {
-      const res = await fetch(`/api/teachers/${teacherId}/available-slots?slotId=${slotId}`, {
+      const res = await authFetch(`/api/teachers/${teacherId}/available-slots?slotId=${slotId}`, {
         method: 'DELETE',
       });
       if (!res.ok) {

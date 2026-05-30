@@ -1,5 +1,6 @@
 'use client';
 
+import { authFetch } from '@/lib/store';
 import { useEffect, useState, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -60,7 +61,7 @@ export function FeriadosPage() {
 
   const loadHolidays = useCallback(async () => {
     try {
-      const res = await fetch('/api/holidays');
+      const res = await authFetch('/api/holidays');
       const data = await res.json();
       setHolidays(data.holidays || []);
     } catch {
@@ -81,7 +82,7 @@ export function FeriadosPage() {
     }
 
     try {
-      const res = await fetch('/api/holidays', {
+      const res = await authFetch('/api/holidays', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),
@@ -99,7 +100,7 @@ export function FeriadosPage() {
   const handleDelete = async (id: string) => {
     if (!confirm('Deseja realmente excluir este feriado?')) return;
     try {
-      await fetch(`/api/holidays/${id}`, { method: 'DELETE' });
+      await authFetch(`/api/holidays/${id}`, { method: 'DELETE' });
       toast.success('Feriado excluído');
       loadHolidays();
     } catch {

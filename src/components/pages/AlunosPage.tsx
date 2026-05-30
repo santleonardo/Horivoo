@@ -1,5 +1,6 @@
 'use client';
 
+import { authFetch } from '@/lib/store';
 import { useEffect, useState, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -75,7 +76,7 @@ export function AlunosPage() {
 
   const loadStudents = useCallback(async () => {
     try {
-      const res = await fetch('/api/students');
+      const res = await authFetch('/api/students');
       const data = await res.json();
       setStudents(data.students || []);
     } catch {
@@ -116,7 +117,7 @@ export function AlunosPage() {
     setViewingStudent(student);
     setProfileOpen(true);
     try {
-      const res = await fetch(`/api/bookings?studentProfileId=${student.id}`);
+      const res = await authFetch(`/api/bookings?studentProfileId=${student.id}`);
       const data = await res.json();
       setStudentBookings(data.bookings || []);
     } catch {
@@ -140,7 +141,7 @@ export function AlunosPage() {
 
     try {
       if (editingStudent) {
-        const res = await fetch(`/api/students/${editingStudent.id}`, {
+        const res = await authFetch(`/api/students/${editingStudent.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(form),
@@ -148,7 +149,7 @@ export function AlunosPage() {
         if (!res.ok) throw new Error();
         toast.success('Aluno atualizado com sucesso');
       } else {
-        const res = await fetch('/api/students', {
+        const res = await authFetch('/api/students', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(form),
@@ -166,7 +167,7 @@ export function AlunosPage() {
   const handleDelete = async (id: string) => {
     if (!confirm('Deseja realmente excluir este aluno?')) return;
     try {
-      await fetch(`/api/students/${id}`, { method: 'DELETE' });
+      await authFetch(`/api/students/${id}`, { method: 'DELETE' });
       toast.success('Aluno excluído');
       loadStudents();
     } catch {

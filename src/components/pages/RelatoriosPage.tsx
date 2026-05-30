@@ -1,5 +1,6 @@
 'use client';
 
+import { authFetch } from '@/lib/store';
 import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { BarChart3, Users, GraduationCap, CalendarCheck, TrendingUp } from 'lucide-react';
@@ -17,7 +18,7 @@ export function RelatoriosPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('/api/dashboard')
+    authFetch('/api/dashboard')
       .then((res) => res.json())
       .then((d) => {
         setData(d);

@@ -1,5 +1,6 @@
 'use client';
 
+import { authFetch } from '@/lib/store';
 import { useEffect, useState, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -64,7 +65,7 @@ export function ProfessoresPage() {
 
   const loadTeachers = useCallback(async () => {
     try {
-      const res = await fetch('/api/teachers');
+      const res = await authFetch('/api/teachers');
       const data = await res.json();
       setTeachers(data.teachers || []);
     } catch {
@@ -110,7 +111,7 @@ export function ProfessoresPage() {
 
     try {
       if (editingTeacher) {
-        const res = await fetch(`/api/teachers/${editingTeacher.id}`, {
+        const res = await authFetch(`/api/teachers/${editingTeacher.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(form),
@@ -118,7 +119,7 @@ export function ProfessoresPage() {
         if (!res.ok) throw new Error();
         toast.success('Professor atualizado com sucesso');
       } else {
-        const res = await fetch('/api/teachers', {
+        const res = await authFetch('/api/teachers', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(form),
@@ -136,7 +137,7 @@ export function ProfessoresPage() {
   const handleDelete = async (id: string) => {
     if (!confirm('Deseja realmente excluir este professor?')) return;
     try {
-      await fetch(`/api/teachers/${id}`, { method: 'DELETE' });
+      await authFetch(`/api/teachers/${id}`, { method: 'DELETE' });
       toast.success('Professor excluído');
       loadTeachers();
     } catch {
@@ -147,7 +148,7 @@ export function ProfessoresPage() {
   const addSlot = async () => {
     if (!viewingTeacher) return;
     try {
-      const res = await fetch(`/api/teachers/${viewingTeacher.id}/available-slots`, {
+      const res = await authFetch(`/api/teachers/${viewingTeacher.id}/available-slots`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(slotForm),
@@ -158,7 +159,7 @@ export function ProfessoresPage() {
       }
       toast.success('Horário adicionado');
       // Reload teachers and update viewingTeacher
-      const teachersRes = await fetch('/api/teachers');
+      const teachersRes = await authFetch('/api/teachers');
       const teachersData = await teachersRes.json();
       setTeachers(teachersData.teachers || []);
       const updated = teachersData.teachers?.find((t: Teacher) => t.id === viewingTeacher.id);
@@ -171,11 +172,11 @@ export function ProfessoresPage() {
   const removeSlot = async (slotId: string) => {
     if (!viewingTeacher) return;
     try {
-      await fetch(`/api/teachers/${viewingTeacher.id}/available-slots?slotId=${slotId}`, {
+      await authFetch(`/api/teachers/${viewingTeacher.id}/available-slots?slotId=${slotId}`, {
         method: 'DELETE',
       });
       toast.success('Horário removido');
-      const teachersRes = await fetch('/api/teachers');
+      const teachersRes = await authFetch('/api/teachers');
       const teachersData = await teachersRes.json();
       setTeachers(teachersData.teachers || []);
       const updated = teachersData.teachers?.find((t: Teacher) => t.id === viewingTeacher.id);
