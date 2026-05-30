@@ -1,73 +1,60 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { hashPassword, verifyPassword, createToken } from '@/lib/auth';
+import { verifyPassword, hashPassword, createToken } from '@/lib/auth';
+
+interface AuthUser {
+  id: string;
+  email: string;
+  name: string;
+  password: string;
+  role: string;
+}
+
+interface AuthTeacher {
+  id: string;
+  user_id: string;
+  name: string;
+  email: string;
+}
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { action } = body;
+    const { email, password, name, role, action } = body as Record<string, string>;
 
+    // ── Signup ─────────────────────────────────────────────
     if (action === 'signup') {
-      const { name, email, password, role, subjects, bio, responsibleName, notes, phone } = body;
-
-      if (!name || !password || !role) {
-        return NextResponse.json(
-          { error: 'Name, password, and role are required' },
-          { status: 400 }
-        );
+      if (!email || !password || !name || !role) {
+        return NextResponse.json({ error: 'Preencha todos os campos' }, { status: 400 });
+      }
+      if (!['teacher', 'coordinator', 'student'].includes(role)) {
+        return NextResponse.json({ error: 'Perfil inválido' }, { status: 400 });
       }
 
-      const existingUser = await db.user.findUnique({ where: { email: email || '' } });
-      if (existingUser) {
-        return NextResponse.json(
-          { error: 'Email already in use' },
-          { status: 409 }
-        );
+      const existing = await db.user.findUnique({ where: { email } });
+      if (existing) {
+        return NextResponse.json({ error: 'Email já cadastrado' }, { status: 400 });
       }
 
-      const hashedPassword = await hashPassword(password);
-      const userEmail = email || (role === 'student' ? `student_${Date.now()}@horivoo.local` : '');
+      const hashedPassword = hashPassword(password);
+      const user = (await db.user.create({
+        data: { email, name, password: hashedPassword, role },
+      })) as unknown as AuthUser;
 
-      if (!userEmail) {
-        return NextResponse.json(
-          { error: 'Email is required for this role' },
-          { status: 400 }
-        );
-      }
-
-      const user = await db.user.create({
-        data: {
-          name,
-          email: userEmail,
-          phone: phone || '',
-          password: hashedPassword,
-          role,
-        },
-      });
-
-      let teacherId: string | null = null;
-      let studentId: string | null = null;
+      let teacherId: string | undefined;
 
       if (role === 'teacher') {
-        const teacher = await db.teacher.create({
-          data: {
-            userId: user.id,
-            subjects: subjects || '',
-            bio: bio || '',
-          },
-        });
+        const teacher = (await db.teacher.create({
+          data: { user_id: user.id, name, email },
+        })) as unknown as AuthTeacher;
         teacherId = teacher.id;
-      } else if (role === 'student') {
-        const student = await db.student.create({
-          data: {
-            userId: user.id,
-            responsibleName: responsibleName || '',
-            notes: notes || '',
-          },
-        });
-        studentId = student.id;
       }
-      // Coordinator: only user, no separate profile
+
+      if (role === 'coordinator') {
+        await db.coordinator.create({
+          data: { user_id: user.id, name, email },
+        });
+      }
 
       const token = await createToken({
         userId: user.id,
@@ -76,39 +63,33 @@ export async function POST(request: NextRequest) {
       });
 
       return NextResponse.json({
-        token,
         user: {
           id: user.id,
-          name: user.name,
           email: user.email,
-          phone: user.phone,
+          name: user.name,
           role: user.role,
-          teacherId,
-          studentId,
+          ...(teacherId && { teacherId }),
         },
-      });
+        token,
+      }, { status: 201 });
     }
 
-    // Login
-    const { email, password } = body;
+    // ── Login ───────────────────────────────────────────────
     if (!email || !password) {
-      return NextResponse.json(
-        { error: 'Email and password are required' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Email e senha são obrigatórios' }, { status: 400 });
     }
 
-    const user = await db.user.findUnique({
-      where: { email },
-      include: { teacher: true, student: true },
-    });
-
-    if (!user || !(await verifyPassword(password, user.password))) {
-      return NextResponse.json(
-        { error: 'Invalid email or password' },
-        { status: 401 }
-      );
+    const user = (await db.user.findUnique({ where: { email } })) as unknown as AuthUser | null;
+    if (!user) {
+      return NextResponse.json({ error: 'Usuário não encontrado' }, { status: 404 });
     }
+
+    const valid = verifyPassword(password, user.password);
+    if (!valid) {
+      return NextResponse.json({ error: 'Senha incorreta' }, { status: 401 });
+    }
+
+    const teacher = (await db.teacher.findUnique({ where: { user_id: user.id } })) as unknown as AuthTeacher | null;
 
     const token = await createToken({
       userId: user.id,
@@ -117,22 +98,25 @@ export async function POST(request: NextRequest) {
     });
 
     return NextResponse.json({
-      token,
       user: {
         id: user.id,
-        name: user.name,
         email: user.email,
-        phone: user.phone,
+        name: user.name,
         role: user.role,
-        teacherId: user.teacher?.id || null,
-        studentId: user.student?.id || null,
+        teacherId: teacher?.id,
       },
+      token,
     });
   } catch (error) {
     console.error('Auth error:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    const msg = error instanceof Error ? error.message : 'Erro interno do servidor';
+    // Detect Supabase not configured
+    if (msg.includes('Supabase não configurado') || msg.includes('fetch failed') || msg.includes('Invalid URL')) {
+      return NextResponse.json(
+        { error: 'Banco de dados não configurado. Verifique as variáveis de ambiente do Supabase no .env.local' },
+        { status: 503 }
+      );
+    }
+    return NextResponse.json({ error: 'Erro interno do servidor' }, { status: 500 });
   }
 }

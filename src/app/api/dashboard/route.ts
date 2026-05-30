@@ -1,75 +1,53 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { getUserFromRequest } from '@/lib/auth';
+import { format } from 'date-fns';
 
-export async function GET(request: NextRequest) {
+type Row = Record<string, unknown>;
+
+export async function GET() {
   try {
-    const user = await getUserFromRequest(request);
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const today = format(new Date(), 'yyyy-MM-dd');
+    const weekDates: string[] = [];
+    const weekStart = new Date();
+    weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(weekStart);
+      d.setDate(d.getDate() + i);
+      weekDates.push(format(d, 'yyyy-MM-dd'));
     }
 
-    // Count totals
-    const [totalTeachers, totalStudents, totalClasses] = await Promise.all([
+    const [totalTeachers, totalStudents, totalBookings, todayBookings, weekBookings, upcoming] = await Promise.all([
       db.teacher.count(),
       db.student.count(),
-      db.class.count(),
+      db.booking.count({ where: { status: 'confirmed' } }),
+      db.booking.count({ where: { date: today, status: 'confirmed' } }),
+      db.booking.count({ where: { date: { in: weekDates }, status: 'confirmed' } }),
+      db.booking.findMany({ where: { date: { gte: today }, status: 'confirmed' }, orderBy: [{ date: 'asc' }, { start_time: 'asc' }], take: 5 }),
     ]);
 
-    // Appointments today
-    const today = new Date().toISOString().split('T')[0];
-    const totalAppointmentsToday = await db.appointment.count({
-      where: {
-        date: today,
-        status: { not: 'cancelled' },
-      },
-    });
-
-    // Upcoming appointments (next 7 days)
-    const nextWeek = new Date();
-    nextWeek.setDate(nextWeek.getDate() + 7);
-    const nextWeekStr = nextWeek.toISOString().split('T')[0];
-
-    const upcomingAppointments = await db.appointment.findMany({
-      where: {
-        date: { gte: today, lte: nextWeekStr },
-        status: { not: 'cancelled' },
-      },
-      include: {
-        class: true,
-        teacher: {
-          include: { user: true },
-        },
-        student: {
-          include: { user: true },
-        },
-      },
-      orderBy: [{ date: 'asc' }, { startTime: 'asc' }],
-      take: 20,
-    });
-
-    // Recent messages (last 5)
-    const recentMessages = await db.message.findMany({
-      where: { receiverId: user.userId },
-      include: {
-        sender: {
-          select: { id: true, name: true, email: true, role: true },
-        },
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 5,
-    });
+    // After toCamel, all fields are camelCase
+    const teacherIds = [...new Set((upcoming as Row[]).map(b => b['teacherId'] as string))];
+    const teachers = teacherIds.length ? await db.teacher.findMany({ where: { id: { in: teacherIds } } }) : [];
+    const tMap = new Map((teachers as Row[]).map(t => [t['id'], t['name']]));
 
     return NextResponse.json({
       totalTeachers,
       totalStudents,
-      totalClasses,
-      totalAppointmentsToday,
-      upcomingAppointments,
-      recentMessages,
+      totalBookings,
+      todayBookings,
+      weekBookings,
+      upcomingBookings: (upcoming as Row[]).map(b => ({
+        id: b['id'],
+        date: b['date'],
+        startTime: b['startTime'],
+        endTime: b['endTime'],
+        studentName: b['studentName'],
+        teacherName: tMap.get(b['teacherId'] as string) || '',
+        status: b['status'],
+      })),
     });
   } catch (error) {
     console.error('Dashboard error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ error: 'Erro ao buscar estatísticas' }, { status: 500 });
   }
 }
