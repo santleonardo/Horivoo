@@ -4,7 +4,7 @@
  */
 import { SignJWT, jwtVerify } from 'jose';
 import { createHash } from 'crypto';
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
 const getSecret = () =>
   new TextEncoder().encode(
@@ -57,4 +57,18 @@ export async function getUserFromRequest(
   if (!authHeader?.startsWith('Bearer ')) return null;
   const token = authHeader.substring(7);
   return verifyToken(token);
+}
+
+/**
+ * Require that the authenticated user has one of the specified roles.
+ * Returns the user object if authorized, or a NextResponse with 401/403.
+ */
+export async function requireRole(
+  request: NextRequest,
+  ...roles: string[]
+): Promise<{ userId: string; email: string; role: string } | NextResponse> {
+  const user = await getUserFromRequest(request);
+  if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
+  if (!roles.includes(user.role)) return NextResponse.json({ error: 'Acesso proibido' }, { status: 403 });
+  return user;
 }
