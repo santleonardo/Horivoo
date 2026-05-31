@@ -1,9 +1,16 @@
 /**
  * db.ts — Cliente Supabase (PostgREST)
- * Tabelas: users, teachers, coordinators, students, available_slots,
- *          blocked_slots, bookings, recurring_bookings, non_class_days,
- *          holidays, recesses, blocked_periods, messages,
- *          classes, class_students, appointments, tests, attendance, make_up_classes
+ *
+ * Fonte de dados canônica do Horivoo:
+ *   users, teachers, coordinators, students
+ *   available_slots, blocked_slots, blocked_periods, non_class_days
+ *   holidays, recesses
+ *   messages
+ *   classes, class_students
+ *   appointments  ← fonte única de aulas
+ *   tests, attendance, make_up_classes
+ *
+ * NÃO existem mais: bookings, recurring_bookings
  */
 
 const SUPABASE_URL = (process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace(/\/$/, '');
@@ -19,7 +26,6 @@ if (!isConfigured) {
   );
 }
 
-/** Verifica se o Supabase está configurado */
 export function isSupabaseConfigured(): boolean {
   return isConfigured;
 }
@@ -27,12 +33,6 @@ export function isSupabaseConfigured(): boolean {
 type Row = Record<string, unknown>;
 type OrderDir = 'asc' | 'desc';
 
-// ---------------------------------------------------------------------------
-// snake_case → camelCase conversion
-// Supabase / PostgREST returns column names as-is (snake_case). All route and
-// component code was written expecting camelCase keys (dayOfWeek, startTime …).
-// These helpers bridge the gap so we don't have to rename every accessor.
-// ---------------------------------------------------------------------------
 function snakeToCamel(s: string): string {
   return s.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
 }
@@ -53,7 +53,6 @@ function toCamel<T>(obj: T): T {
 interface FindManyOptions {
   where?: Row;
   orderBy?: { [field: string]: OrderDir } | Array<{ [field: string]: OrderDir }>;
-  include?: Record<string, boolean>;
   take?: number;
   select?: string[];
 }
@@ -82,7 +81,7 @@ async function sbFetch<T = unknown>(
   });
 
   if (!res.ok) {
-    const err = await res.json().catch(() => ({})) as { message?: string; hint?: string; details?: string; code?: string };
+    const err = await res.json().catch(() => ({})) as { message?: string; hint?: string; details?: string };
     const msg = err.message || err.details || err.hint || `Supabase error ${res.status}`;
     console.error(`[db] ${options.method || 'GET'} ${url} → ${res.status}:`, msg);
     throw new Error(msg);
@@ -96,8 +95,7 @@ async function sbFetch<T = unknown>(
 function buildQuery(table: string, opts: FindManyOptions = {}): string {
   const params: string[] = [];
 
-  const selectFields = opts.select?.join(',') || '*';
-  params.push(`select=${selectFields}`);
+  params.push(`select=${opts.select?.join(',') || '*'}`);
 
   if (opts.where) {
     for (const [key, val] of Object.entries(opts.where)) {
@@ -109,6 +107,7 @@ function buildQuery(table: string, opts: FindManyOptions = {}): string {
         if (op.lte)        params.push(`${key}=lte.${op.lte}`);
         if (op.gt)         params.push(`${key}=gt.${op.gt}`);
         if (op.lt)         params.push(`${key}=lt.${op.lt}`);
+        if (op.not)        params.push(`${key}=neq.${op.not}`);
         if (op.startsWith) params.push(`${key}=like.${op.startsWith}*`);
         if (op.contains)   params.push(`${key}=ilike.*${op.contains}*`);
       } else {
@@ -134,8 +133,7 @@ function buildQuery(table: string, opts: FindManyOptions = {}): string {
 function makeTable<T extends Row>(table: string) {
   return {
     async findMany(opts: FindManyOptions = {}): Promise<T[]> {
-      const rows = await sbFetch<T[]>(buildQuery(table, opts));
-      return toCamel(rows);
+      return toCamel(await sbFetch<T[]>(buildQuery(table, opts)));
     },
 
     async findUnique(opts: { where: Row }): Promise<T | null> {
@@ -206,29 +204,27 @@ function makeTable<T extends Row>(table: string) {
 }
 
 export const db = {
-  user:             makeTable('users'),
-  teacher:          makeTable('teachers'),
-  coordinator:      makeTable('coordinators'),
-  student:          makeTable('students'),
-  availableSlot:    makeTable('available_slots'),
-  blockedSlot:      makeTable('blocked_slots'),
-  booking:          makeTable('bookings'),
-  recurringBooking: makeTable('recurring_bookings'),
-  nonClassDay:      makeTable('non_class_days'),
-  holiday:          makeTable('holidays'),
-  recess:           makeTable('recesses'),
-  blockedPeriod:    makeTable('blocked_periods'),
-  message:          makeTable('messages'),
-  /** Turmas (classes) */
-  class_:           makeTable('classes'),
-  /** Relação turma ↔ aluno */
-  classStudent:     makeTable('class_students'),
-  /** Agendamentos / Appointments */
-  appointment:      makeTable('appointments'),
-  /** Provas */
-  test:             makeTable('tests'),
-  /** Presença / Frequência */
-  attendance:       makeTable('attendance'),
-  /** Reposições de aula */
-  makeUpClass:      makeTable('make_up_classes'),
+  user:          makeTable('users'),
+  teacher:       makeTable('teachers'),
+  coordinator:   makeTable('coordinators'),
+  student:       makeTable('students'),
+  // Disponibilidade
+  availableSlot: makeTable('available_slots'),
+  blockedSlot:   makeTable('blocked_slots'),
+  blockedPeriod: makeTable('blocked_periods'),
+  nonClassDay:   makeTable('non_class_days'),
+  // Calendário
+  holiday:       makeTable('holidays'),
+  recess:        makeTable('recesses'),
+  // Mensagens
+  message:       makeTable('messages'),
+  // Turmas
+  class_:        makeTable('classes'),
+  classStudent:  makeTable('class_students'),
+  // Agendamentos — fonte única (bookings removido)
+  appointment:   makeTable('appointments'),
+  // Provas / frequência / reposições
+  test:          makeTable('tests'),
+  attendance:    makeTable('attendance'),
+  makeUpClass:   makeTable('make_up_classes'),
 };
