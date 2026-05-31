@@ -1,7 +1,10 @@
 /**
- * /api/appointments — CRUD de agendamentos (appointments)
- * GET: All authenticated users, with role-based filtering
- * POST: Only coordinator can create, uses checkAvailability
+ * /api/appointments — CRUD de agendamentos
+ * GET:  qualquer autenticado, com filtro obrigatório por papel
+ * POST: coordinator only — usa checkAvailability
+ *
+ * Segurança: teacher e student nunca recebem dados de outros usuários,
+ * mesmo que passem teacherId/studentId diferentes no query param.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
@@ -16,26 +19,50 @@ export async function GET(request: NextRequest) {
     if (authResult instanceof NextResponse) return authResult;
 
     const { searchParams } = new URL(request.url);
-    const teacherId = searchParams.get('teacherId');
-    const studentId = searchParams.get('studentId');
-    const classId = searchParams.get('classId');
-    const date = searchParams.get('date');
-    const status = searchParams.get('status');
-
     const where: Row = {};
-    if (teacherId) where['teacher_id'] = teacherId;
-    if (studentId) where['student_id'] = studentId;
-    if (classId)   where['class_id'] = classId;
-    if (date)      where['date'] = date;
-    if (status)    where['status'] = status;
 
-    // Role-based filtering
+    // Coordinator: aceita filtros do cliente
+    if (authResult.role === 'coordinator') {
+      const teacherId = searchParams.get('teacherId');
+      const studentId = searchParams.get('studentId');
+      const classId   = searchParams.get('classId');
+      const date      = searchParams.get('date');
+      const status    = searchParams.get('status');
+      const from      = searchParams.get('from');
+      const to        = searchParams.get('to');
+      if (teacherId) where['teacher_id'] = teacherId;
+      if (studentId) where['student_id'] = studentId;
+      if (classId)   where['class_id']   = classId;
+      if (date)      where['date']        = date;
+      if (status)    where['status']      = status;
+      if (from && to) where['date'] = { gte: from, lte: to } as never;
+      else if (from)  where['date'] = { gte: from } as never;
+    }
+
+    // Teacher: força próprio teacher_id (ignora query param)
     if (authResult.role === 'teacher') {
       const teacher = await db.teacher.findUnique({ where: { user_id: authResult.userId } });
-      if (teacher) where['teacher_id'] = (teacher as Row)['id'];
+      if (!teacher) return NextResponse.json({ appointments: [] });
+      where['teacher_id'] = (teacher as Row)['id'];
+      const date   = searchParams.get('date');
+      const status = searchParams.get('status');
+      const from   = searchParams.get('from');
+      const to     = searchParams.get('to');
+      if (date)   where['date']   = date;
+      if (status) where['status'] = status;
+      if (from && to) where['date'] = { gte: from, lte: to } as never;
+      else if (from)  where['date'] = { gte: from } as never;
     }
+
+    // Student: força próprio student_id (ignora query param)
     if (authResult.role === 'student') {
       where['student_id'] = authResult.userId;
+      const status = searchParams.get('status');
+      const from   = searchParams.get('from');
+      const to     = searchParams.get('to');
+      if (status) where['status'] = status;
+      if (from && to) where['date'] = { gte: from, lte: to } as never;
+      else if (from)  where['date'] = { gte: from } as never;
     }
 
     const appointments = await db.appointment.findMany({
@@ -52,7 +79,6 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    // Only coordinators can create appointments
     const authResult = await requireRole(request, 'coordinator');
     if (authResult instanceof NextResponse) return authResult;
 
@@ -64,37 +90,41 @@ export async function POST(request: NextRequest) {
       startTime: string;
       endTime: string;
       recurringGroupId?: string;
+      bookingType?: string;
+      originalBookingId?: string;
       notes?: string;
     };
 
-    const { teacherId, studentId, classId, date, startTime, endTime, recurringGroupId, notes } = body;
+    const { teacherId, studentId, classId, date, startTime, endTime,
+            recurringGroupId, bookingType, originalBookingId, notes } = body;
 
     if (!teacherId || !date || !startTime || !endTime) {
       return NextResponse.json({ error: 'Preencha todos os campos obrigatórios' }, { status: 400 });
     }
 
-    // Use centralized checkAvailability
     const availability = await checkAvailability({ teacherId, date, startTime, endTime });
     if (!availability.available) {
       return NextResponse.json({ error: availability.reason }, { status: 400 });
     }
 
     const dayOfWeek = new Date(date + 'T12:00:00').getDay();
+    const appointment = await db.appointment.create({
+      data: {
+        teacher_id:          teacherId,
+        student_id:          studentId          || null,
+        class_id:            classId            || null,
+        date,
+        day_of_week:         dayOfWeek,
+        start_time:          startTime,
+        end_time:            endTime,
+        status:              'confirmed',
+        recurring_group_id:  recurringGroupId   || null,
+        booking_type:        bookingType        || 'normal',
+        original_booking_id: originalBookingId  || null,
+        notes:               notes              || '',
+      },
+    });
 
-    const data: Row = {
-      teacher_id: teacherId,
-      student_id: studentId || null,
-      class_id: classId || null,
-      date,
-      day_of_week: dayOfWeek,
-      start_time: startTime,
-      end_time: endTime,
-      status: 'confirmed',
-      recurring_group_id: recurringGroupId || null,
-      notes: notes || '',
-    };
-
-    const appointment = await db.appointment.create({ data });
     return NextResponse.json({ appointment }, { status: 201 });
   } catch (error) {
     console.error('[appointments POST]', error);

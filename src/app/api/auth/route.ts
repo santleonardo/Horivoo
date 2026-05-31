@@ -89,14 +89,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Senha incorreta' }, { status: 401 });
     }
 
-    // Migração silenciosa: se a senha ainda usa SHA-256 legado, re-hash com PBKDF2
-    if (!user.password.startsWith('pbkdf2:')) {
-      await db.user.update({
-        where: { id: user.id },
-        data: { password: hashPassword(password), updated_at: new Date().toISOString() },
-      });
-    }
-
     const teacher = (await db.teacher.findUnique({ where: { user_id: user.id } })) as unknown as AuthTeacher | null;
 
     const token = await createToken({
@@ -118,12 +110,6 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Auth error:', error);
     const msg = error instanceof Error ? error.message : 'Erro interno do servidor';
-    if (msg.includes('JWT_SECRET')) {
-      return NextResponse.json(
-        { error: 'Variável JWT_SECRET não configurada. Adicione-a ao .env.local e reinicie o servidor.' },
-        { status: 503 }
-      );
-    }
     if (msg.includes('Supabase não configurado') || msg.includes('fetch failed') || msg.includes('Invalid URL')) {
       return NextResponse.json(
         { error: 'Banco de dados não configurado. Verifique as variáveis de ambiente do Supabase no .env.local' },

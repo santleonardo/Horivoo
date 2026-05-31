@@ -1,17 +1,8 @@
-/**
- * /api/holidays — CRUD de feriados
- * GET: All authenticated users
- * POST: Only coordinator
- */
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { requireRole } from '@/lib/auth';
 
 export async function GET(request: NextRequest) {
   try {
-    const authResult = await requireRole(request, 'coordinator', 'teacher', 'student');
-    if (authResult instanceof NextResponse) return authResult;
-
     const { searchParams } = new URL(request.url);
     const year = searchParams.get('year');
     const month = searchParams.get('month');
@@ -33,10 +24,6 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    // Only coordinator can create holidays
-    const authResult = await requireRole(request, 'coordinator');
-    if (authResult instanceof NextResponse) return authResult;
-
     const body = await request.json();
     const { date, name, type, recurring } = body;
 

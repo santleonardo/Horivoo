@@ -1,7 +1,8 @@
 /**
- * /api/blocked-slots — Horários bloqueados do professor
- * GET: Coordinator or teacher (own)
- * POST: Teacher (own) or coordinator — used by DisponibilidadePage
+ * /api/blocked-slots — Bloqueios pontuais de horário do professor
+ * GET:    coordinator ou teacher (próprio)
+ * POST:   coordinator ou teacher (próprio)
+ * Gerenciamento de indisponibilidades específicas por data/hora
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
@@ -9,22 +10,29 @@ import { requireRole } from '@/lib/auth';
 
 type Row = Record<string, unknown>;
 
+async function resolveTeacher(userId: string): Promise<string | null> {
+  const t = await db.teacher.findUnique({ where: { user_id: userId } });
+  return t ? (t as Row)['id'] as string : null;
+}
+
 export async function GET(request: NextRequest) {
   try {
-    const authResult = await requireRole(request, 'coordinator', 'teacher', 'student');
-    if (authResult instanceof NextResponse) return authResult;
+    const auth = await requireRole(request, 'coordinator', 'teacher');
+    if (auth instanceof NextResponse) return auth;
 
     const { searchParams } = new URL(request.url);
     const teacherId = searchParams.get('teacherId');
-    const date = searchParams.get('date');
+    const date      = searchParams.get('date');
     const where: Row = {};
 
-    if (authResult.role === 'teacher') {
-      const teacher = await db.teacher.findUnique({ where: { user_id: authResult.userId } });
-      if (teacher) where['teacher_id'] = (teacher as Row)['id'];
+    if (auth.role === 'teacher') {
+      const tid = await resolveTeacher(auth.userId);
+      if (!tid) return NextResponse.json({ blockedSlots: [] });
+      where['teacher_id'] = tid;
     } else if (teacherId) {
       where['teacher_id'] = teacherId;
     }
+
     if (date) where['date'] = date;
 
     const blockedSlots = await db.blockedSlot.findMany({
@@ -33,48 +41,40 @@ export async function GET(request: NextRequest) {
     });
     return NextResponse.json({ blockedSlots });
   } catch (error) {
-    console.error(error);
-    return NextResponse.json({ error: 'Erro ao buscar horários bloqueados' }, { status: 500 });
+    console.error('[blocked-slots GET]', error);
+    return NextResponse.json({ error: 'Erro ao buscar bloqueios' }, { status: 500 });
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const authResult = await requireRole(request, 'coordinator', 'teacher');
-    if (authResult instanceof NextResponse) return authResult;
+    const auth = await requireRole(request, 'coordinator', 'teacher');
+    if (auth instanceof NextResponse) return auth;
 
-    const { teacherId, date, startTime, endTime, reason } = await request.json() as {
-      teacherId: string;
-      date: string;
-      startTime: string;
-      endTime: string;
-      reason?: string;
+    const body = await request.json() as {
+      teacherId?: string; date: string; startTime: string; endTime: string; reason?: string;
     };
 
-    if (!teacherId || !date || !startTime || !endTime) {
-      return NextResponse.json({ error: 'Preencha todos os campos obrigatórios' }, { status: 400 });
+    let teacherId = body.teacherId;
+    if (auth.role === 'teacher') {
+      const tid = await resolveTeacher(auth.userId);
+      if (!tid) return NextResponse.json({ error: 'Professor não encontrado' }, { status: 404 });
+      teacherId = tid;
     }
+    if (!teacherId) return NextResponse.json({ error: 'teacherId obrigatório' }, { status: 400 });
 
-    // Teachers can only block their own slots
-    if (authResult.role === 'teacher') {
-      const teacher = await db.teacher.findUnique({ where: { user_id: authResult.userId } });
-      if (!teacher || (teacher as Row)['id'] !== teacherId) {
-        return NextResponse.json({ error: 'Não autorizado a bloquear horários de outro professor' }, { status: 403 });
-      }
-    }
-
-    const blockedSlot = await db.blockedSlot.create({
+    const slot = await db.blockedSlot.create({
       data: {
         teacher_id: teacherId,
-        date,
-        start_time: startTime,
-        end_time: endTime,
-        reason: reason || null,
+        date:       body.date,
+        start_time: body.startTime,
+        end_time:   body.endTime,
+        reason:     body.reason || '',
       },
     });
-    return NextResponse.json({ blockedSlot }, { status: 201 });
+    return NextResponse.json({ slot }, { status: 201 });
   } catch (error) {
-    console.error(error);
-    return NextResponse.json({ error: 'Erro ao bloquear horário' }, { status: 500 });
+    console.error('[blocked-slots POST]', error);
+    return NextResponse.json({ error: 'Erro ao criar bloqueio' }, { status: 500 });
   }
 }
