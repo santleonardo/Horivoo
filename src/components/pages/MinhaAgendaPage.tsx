@@ -128,14 +128,14 @@ export function MinhaAgendaPage() {
     const from = format(startOfMonth(viewMonth), 'yyyy-MM-dd');
     const to = format(endOfMonth(viewMonth), 'yyyy-MM-dd');
 
-    authFetch(`/api/bookings-teacher?teacherId=${teacherId}&from=${from}&to=${to}`)
+    authFetch(`/api/appointments?teacherId=${teacherId}&from=${from}&to=${to}`)
       .then(r => r.json())
-      .then(data => setBookings(data.bookings || []))
+      .then(data => setBookings(data.appointments || []))
       .catch(() => {
         // Fallback to regular bookings endpoint
-        authFetch(`/api/bookings?teacherId=${teacherId}&from=${from}&to=${to}`)
+        authFetch(`/api/appointments?teacherId=${teacherId}&from=${from}&to=${to}`)
           .then(r => r.json())
-          .then(data => setBookings(data.bookings || []))
+          .then(data => setBookings(data.appointments || []))
           .catch(() => setBookings([]));
       })
       .finally(() => setLoading(false));

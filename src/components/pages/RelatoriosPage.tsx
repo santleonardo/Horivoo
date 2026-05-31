@@ -1,6 +1,5 @@
 'use client';
 
-import { authFetch } from '@/lib/store';
 import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { BarChart3, Users, GraduationCap, CalendarCheck, TrendingUp } from 'lucide-react';
@@ -18,7 +17,7 @@ export function RelatoriosPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    authFetch('/api/dashboard')
+    fetch('/api/dashboard')
       .then((res) => res.json())
       .then((d) => {
         setData(d);
@@ -39,7 +38,7 @@ export function RelatoriosPage() {
     );
   }
 
-  const completionRate = data?.totalBookings && data.totalBookings > 0
+  const completionRate = data?.totalAppointments && data.totalBookings > 0
     ? Math.round(((data.todayBookings || 0) / data.totalBookings) * 100)
     : 0;
 
@@ -106,11 +105,11 @@ export function RelatoriosPage() {
             </div>
           </CardHeader>
           <CardContent>
-            <p className="text-4xl font-bold text-amber-700">{data?.totalBookings || 0}</p>
+            <p className="text-4xl font-bold text-amber-700">{data?.totalAppointments || 0}</p>
             <div className="mt-3">
               <div className="flex justify-between text-xs text-muted-foreground mb-1">
-                <span>Hoje: {data?.todayBookings || 0}</span>
-                <span>Semana: {data?.weekBookings || 0}</span>
+                <span>Hoje: {data?.todayAppointments || 0}</span>
+                <span>Semana: {data?.weekAppointments || 0}</span>
               </div>
               <div className="w-full bg-muted rounded-full h-2">
                 <div
@@ -145,11 +144,11 @@ export function RelatoriosPage() {
               <p className="text-sm text-muted-foreground">Alunos</p>
             </div>
             <div className="p-4 rounded-lg bg-muted/50 text-center">
-              <p className="text-2xl font-bold">{data?.todayBookings || 0}</p>
+              <p className="text-2xl font-bold">{data?.todayAppointments || 0}</p>
               <p className="text-sm text-muted-foreground">Hoje</p>
             </div>
             <div className="p-4 rounded-lg bg-muted/50 text-center">
-              <p className="text-2xl font-bold">{data?.weekBookings || 0}</p>
+              <p className="text-2xl font-bold">{data?.weekAppointments || 0}</p>
               <p className="text-sm text-muted-foreground">Semana</p>
             </div>
           </div>

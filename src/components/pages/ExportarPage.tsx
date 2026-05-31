@@ -1,6 +1,5 @@
 'use client';
 
-import { authFetch } from '@/lib/store';
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -30,7 +29,7 @@ export function ExportarPage() {
   const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
-    authFetch('/api/teachers')
+    fetch('/api/teachers')
       .then((res) => res.json())
       .then((data) => setTeachers(data.teachers || []))
       .catch(() => {});

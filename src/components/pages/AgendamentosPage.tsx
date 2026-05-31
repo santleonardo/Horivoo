@@ -1,6 +1,5 @@
 'use client';
 
-import { authFetch } from '@/lib/store';
 import { useEffect, useState, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -101,9 +100,9 @@ export function AgendamentosPage() {
 
   const loadBookings = useCallback(async () => {
     try {
-      const res = await authFetch('/api/bookings');
+      const res = await fetch('/api/appointments');
       const data = await res.json();
-      setBookings(data.bookings || []);
+      setBookings(data.appointments || []);
     } catch {
       toast.error('Erro ao carregar agendamentos');
     } finally {
@@ -119,8 +118,8 @@ export function AgendamentosPage() {
   useEffect(() => {
     if (reposOpen) {
       Promise.all([
-        authFetch('/api/teachers').then((r) => r.json()),
-        authFetch('/api/students').then((r) => r.json()),
+        fetch('/api/teachers').then((r) => r.json()),
+        fetch('/api/students').then((r) => r.json()),
       ])
         .then(([tData, sData]) => {
           setTeachers(tData.teachers || []);
@@ -160,10 +159,9 @@ export function AgendamentosPage() {
     const computeAvailability = async () => {
       try {
         const [bookingsRes, blockedRes, holidaysRes, recessesRes] = await Promise.all([
-          authFetch(`/api/bookings?teacherId=${reposTeacher}&date=${reposDate}`),
-          authFetch(`/api/blocked-slots?teacherId=${reposTeacher}&date=${reposDate}`),
-          authFetch(`/api/holidays?year=${reposDate.substring(0, 4)}&month=${reposDate.substring(5, 7)}`),
-          authFetch('/api/recesses'),
+          fetch(`/api/appointments?teacherId=${reposTeacher}&date=${reposDate}`),
+          fetch(`/api/holidays?year=${reposDate.substring(0, 4)}&month=${reposDate.substring(5, 7)}`),
+          fetch('/api/recesses'),
         ]);
 
         const bookingsData = await bookingsRes.json();
@@ -172,7 +170,7 @@ export function AgendamentosPage() {
         const recessesData = await recessesRes.json();
 
         const bookedSlots = new Set(
-          (bookingsData.bookings || [])
+          (bookingsData.appointments || [])
             .filter((b: { status: string }) => b.status === 'confirmed')
             .map((b: { startTime: string; endTime: string }) => `${b.startTime}-${b.endTime}`)
         );
@@ -225,7 +223,7 @@ export function AgendamentosPage() {
 
   const updateStatus = async (id: string, status: string) => {
     try {
-      const res = await authFetch(`/api/bookings/${id}`, {
+      const res = await fetch(`/api/appointments/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status }),
@@ -243,7 +241,7 @@ export function AgendamentosPage() {
   const deleteBooking = async (id: string) => {
     if (!confirm('Deseja realmente excluir este agendamento?')) return;
     try {
-      await authFetch(`/api/bookings/${id}`, { method: 'DELETE' });
+      await fetch(`/api/appointments/${id}`, { method: 'DELETE' });
       toast.success('Agendamento excluído');
       setBookings((prev) => prev.filter((b) => b.id !== id));
     } catch {
@@ -276,7 +274,7 @@ export function AgendamentosPage() {
 
     setReposSubmitting(true);
     try {
-      const res = await authFetch('/api/bookings', {
+      const res = await fetch('/api/appointments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

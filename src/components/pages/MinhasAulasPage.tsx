@@ -115,9 +115,9 @@ export function MinhasAulasPage() {
     const to   = format(endOfMonth(viewMonth),   'yyyy-MM-dd');
 
     Promise.all([
-      authFetch(`/api/bookings?studentEmail=${encodeURIComponent(user.email)}&from=${from}&to=${to}`)
+      authFetch(`/api/appointments?studentId=${encodeURIComponent(user.email)}&from=${from}&to=${to}`)
         .then(r => r.json())
-        .then(data => data.bookings || [])
+        .then(data => data.appointments || [])
         .catch(() => []),
       authFetch('/api/tests')
         .then(r => r.json())

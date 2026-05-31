@@ -207,7 +207,7 @@ export function CalendarioPage() {
       ]);
       setHolidays(hData.holidays || []);
       setRecesses(rData.recesses || []);
-      setBookings(cData.bookings || []);
+      setBookings(cData.appointments || []);
       setStudents(sData.students || []);
       setTests(tData.tests || []);
 
@@ -261,8 +261,8 @@ export function CalendarioPage() {
     const computeAvailability = async () => {
       try {
         const [bookingsRes, blockedRes, holidaysRes, recessesRes] = await Promise.all([
-          authFetch(`/api/bookings?teacherId=${bookingTeacher}&date=${bookingDate}`),
-          authFetch(`/api/blocked-slots?teacherId=${bookingTeacher}&date=${bookingDate}`),
+          authFetch(`/api/appointments?teacherId=${bookingTeacher}&date=${bookingDate}`),
+          authFetch(`/api/appointments?teacherId=${bookingTeacher}&date=${bookingDate}`),
           authFetch(`/api/holidays?year=${bookingDate.substring(0, 4)}&month=${bookingDate.substring(5, 7)}`),
           authFetch('/api/recesses'),
         ]);
@@ -273,7 +273,7 @@ export function CalendarioPage() {
         const recessesData = await recessesRes.json();
 
         const bookedSlots = new Set(
-          (bookingsData.bookings || [])
+          (bookingsData.appointments || [])
             .filter((b: { status: string }) => b.status === 'confirmed')
             .map((b: { startTime: string; endTime: string }) => `${b.startTime}-${b.endTime}`)
         );
@@ -306,9 +306,9 @@ export function CalendarioPage() {
   // Load cancelled bookings for reposition
   useEffect(() => {
     if (isReposition) {
-      authFetch('/api/bookings?status=cancelled')
+      authFetch('/api/appointments?status=cancelled')
         .then(r => r.json())
-        .then(data => setCancelledBookings(data.bookings || []))
+        .then(data => setCancelledBookings(data.appointments || []))
         .catch(() => setCancelledBookings([]));
     }
   }, [isReposition]);
@@ -429,7 +429,7 @@ export function CalendarioPage() {
       };
       if (isReposition) body.originalBookingId = originalBookingId;
 
-      const res = await authFetch('/api/bookings', {
+      const res = await authFetch('/api/appointments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),

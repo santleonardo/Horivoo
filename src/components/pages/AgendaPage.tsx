@@ -137,9 +137,9 @@ function AgendaContent() {
   // Load cancelled bookings when reposition checkbox is checked
   useEffect(() => {
     if (isReposition) {
-      authFetch('/api/bookings?status=cancelled')
+      authFetch('/api/appointments?status=cancelled')
         .then(r => r.json())
-        .then(data => setCancelledBookings(data.bookings || []))
+        .then(data => setCancelledBookings(data.appointments || []))
         .catch(() => setCancelledBookings([]));
     }
   }, [isReposition]);
@@ -170,8 +170,7 @@ function AgendaContent() {
       // Check for conflicts: bookings, blocked slots, holidays, recesses
       try {
         const [bookingsRes, blockedRes, holidaysRes, recessesRes] = await Promise.all([
-          authFetch(`/api/bookings?teacherId=${selectedTeacher}&date=${selectedDate}`),
-          authFetch(`/api/blocked-slots?teacherId=${selectedTeacher}&date=${selectedDate}`),
+          authFetch(`/api/appointments?teacherId=${selectedTeacher}&date=${selectedDate}`),
           authFetch(`/api/holidays?year=${selectedDate.substring(0, 4)}&month=${selectedDate.substring(5, 7)}`),
           authFetch('/api/recesses'),
         ]);
@@ -182,7 +181,7 @@ function AgendaContent() {
         const recessesData = await recessesRes.json();
 
         const bookedSlots = new Set(
-          (bookingsData.bookings || [])
+          (bookingsData.appointments || [])
             .filter((b: { status: string }) => b.status === 'confirmed')
             .map((b: { startTime: string; endTime: string }) => `${b.startTime}-${b.endTime}`)
         );
@@ -234,9 +233,7 @@ function AgendaContent() {
     try {
       const body: Record<string, unknown> = {
         teacherId: selectedTeacher,
-        studentName: student.name,
-        studentEmail: student.email,
-        studentProfileId: student.id,
+        studentId: student.id,
         date: selectedDate,
         startTime: selectedSlot.startTime,
         endTime: selectedSlot.endTime,
@@ -245,7 +242,7 @@ function AgendaContent() {
       };
       if (isReposition) body.originalBookingId = originalBookingId;
 
-      const res = await authFetch('/api/bookings', {
+      const res = await authFetch('/api/appointments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),

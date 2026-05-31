@@ -61,10 +61,12 @@ interface MenuItem {
 const coordinatorMenu: MenuItem[] = [
   { key: 'dashboard',     label: 'Dashboard',     icon: Home },
   { key: 'agenda',        label: 'Agenda',        icon: Calendar },
+  { key: 'agendamentos',  label: 'Agendamentos',  icon: ClipboardList },
   { key: 'professores',   label: 'Professores',   icon: GraduationCap },
   { key: 'alunos',        label: 'Alunos',        icon: Users },
   { key: 'turmas',        label: 'Turmas',        icon: Layers },
   { key: 'provas',        label: 'Provas',        icon: FileText },
+  { key: 'faltas',        label: 'Faltas',        icon: ClipboardCheck },
   { key: 'reposicoes',    label: 'Reposições',    icon: RotateCcw },
   { key: 'calendario',    label: 'Calendário',    icon: CalendarDays },
   { key: 'feriados',      label: 'Feriados',      icon: PartyPopper },

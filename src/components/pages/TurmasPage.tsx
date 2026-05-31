@@ -233,7 +233,7 @@ export function TurmasPage() {
 
     try {
       const [bRes, tRes] = await Promise.all([
-        authFetch(`/api/bookings?classId=${turma.id}`),
+        authFetch(`/api/appointments?classId=${turma.id}`),
         authFetch(`/api/tests?classId=${turma.id}`),
       ]);
       const bData = await bRes.json();

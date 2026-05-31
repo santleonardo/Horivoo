@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useAuthStore, authFetch } from '@/lib/store';
+import { useAuthStore } from '@/lib/store';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -68,7 +68,7 @@ export function DashboardPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    authFetch('/api/dashboard')
+    fetch('/api/dashboard')
       .then((res) => res.json())
       .then((d) => {
         setData(d);
@@ -112,14 +112,14 @@ export function DashboardPage() {
     },
     {
       label: 'Agendamentos Hoje',
-      value: data?.todayBookings || 0,
+      value: data?.todayAppointments || 0,
       icon: CalendarCheck,
       color: 'text-amber-600',
       bg: 'bg-amber-50',
     },
     {
       label: 'Agendamentos Semana',
-      value: data?.weekBookings || 0,
+      value: data?.weekAppointments || 0,
       icon: CalendarDays,
       color: 'text-rose-600',
       bg: 'bg-rose-50',
@@ -199,9 +199,9 @@ export function DashboardPage() {
             <CardDescription>Próximos 5 agendamentos confirmados</CardDescription>
           </CardHeader>
           <CardContent>
-            {data?.upcomingBookings && data.upcomingBookings.length > 0 ? (
+            {data?.upcomingAppointments && data.upcomingAppointments.length > 0 ? (
               <div className="space-y-3">
-                {data.upcomingBookings.map((booking) => (
+                {data.upcomingAppointments.map((booking) => (
                   <div
                     key={booking.id}
                     className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 hover:bg-muted transition-colors"
@@ -346,7 +346,7 @@ export function DashboardPage() {
                         </span>
                         <span className="flex items-center gap-1">
                           <CalendarDays className="size-3" />
-                          {teacher.upcomingBookingsCount} aula{teacher.upcomingBookingsCount !== 1 ? 's' : ''}
+                          {teacher.upcomingAppointmentsCount} aula{teacher.upcomingAppointmentsCount !== 1 ? 's' : ''}
                         </span>
                       </div>
                     </div>

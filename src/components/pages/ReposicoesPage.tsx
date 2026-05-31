@@ -1,6 +1,5 @@
 'use client';
 
-import { authFetch } from '@/lib/store';
 import { useEffect, useState, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -98,11 +97,11 @@ export function ReposicoesPage() {
   const loadData = useCallback(async () => {
     try {
       const [bRes, tRes, sRes] = await Promise.all([
-        authFetch('/api/bookings').then((r) => r.json()),
-        authFetch('/api/teachers').then((r) => r.json()),
-        authFetch('/api/students').then((r) => r.json()),
+        fetch('/api/appointments').then((r) => r.json()),
+        fetch('/api/teachers').then((r) => r.json()),
+        fetch('/api/students').then((r) => r.json()),
       ]);
-      setBookings(bRes.bookings || []);
+      setBookings(bRes.appointments || []);
       setTeachers(tRes.teachers || []);
       setStudents(sRes.students || []);
     } catch {
@@ -144,10 +143,10 @@ export function ReposicoesPage() {
     const computeAvailability = async () => {
       try {
         const [bookingsRes, blockedRes, holidaysRes, recessesRes] = await Promise.all([
-          authFetch(`/api/bookings?teacherId=${reposTeacher}&date=${reposDate}`),
-          authFetch(`/api/blocked-slots?teacherId=${reposTeacher}&date=${reposDate}`),
-          authFetch(`/api/holidays?year=${reposDate.substring(0, 4)}&month=${reposDate.substring(5, 7)}`),
-          authFetch('/api/recesses'),
+          fetch(`/api/appointments?teacherId=${reposTeacher}&date=${reposDate}`),
+          fetch(`/api/appointments?teacherId=${reposTeacher}&date=${reposDate}`),
+          fetch(`/api/holidays?year=${reposDate.substring(0, 4)}&month=${reposDate.substring(5, 7)}`),
+          fetch('/api/recesses'),
         ]);
 
         const bookingsData = await bookingsRes.json();
@@ -156,7 +155,7 @@ export function ReposicoesPage() {
         const recessesData = await recessesRes.json();
 
         const bookedSlots = new Set(
-          (bookingsData.bookings || [])
+          (bookingsData.appointments || [])
             .filter((b: { status: string }) => b.status === 'confirmed')
             .map((b: { startTime: string; endTime: string }) => `${b.startTime}-${b.endTime}`)
         );
@@ -234,7 +233,7 @@ export function ReposicoesPage() {
 
     setReposSubmitting(true);
     try {
-      const res = await authFetch('/api/bookings', {
+      const res = await fetch('/api/appointments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

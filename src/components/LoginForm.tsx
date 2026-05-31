@@ -29,8 +29,7 @@ export function LoginForm() {
     fetch('/api/health')
       .then(r => r.json())
       .then(data => {
-        if (!data.jwtConfigured) setDbStatus('not_configured');
-        else if (data.supabaseConfigured && data.supabaseConnected) setDbStatus('ok');
+        if (data.supabaseConfigured && data.supabaseConnected) setDbStatus('ok');
         else if (!data.supabaseConfigured) setDbStatus('not_configured');
         else setDbStatus('error');
       })
@@ -69,13 +68,13 @@ export function LoginForm() {
         {dbStatus === 'not_configured' && (
           <Alert variant="destructive">
             <AlertTriangle className="h-4 w-4" />
-            <AlertTitle>Configuração incompleta</AlertTitle>
+            <AlertTitle>Banco de dados nao configurado</AlertTitle>
             <AlertDescription>
-              Variáveis de ambiente ausentes. Copie
+              As variaveis de ambiente do Supabase nao estao definidas. Copie
               <code className="mx-1 rounded bg-gray-100 px-1 py-0.5 text-xs">.env.example</code>
               para
-              <code className="mx-1 rounded bg-gray-100 px-1 py-0.5 text-xs">.env.local</code>,
-              preencha <strong>NEXT_PUBLIC_SUPABASE_URL</strong>, <strong>SUPABASE_SERVICE_ROLE_KEY</strong> e <strong>JWT_SECRET</strong>, e reinicie o servidor.
+              <code className="mx-1 rounded bg-gray-100 px-1 py-0.5 text-xs">.env.local</code>
+              e preencha com suas credenciais do Supabase.
             </AlertDescription>
           </Alert>
         )}
